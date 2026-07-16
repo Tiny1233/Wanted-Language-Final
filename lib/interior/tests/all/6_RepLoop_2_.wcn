@@ -1,0 +1,7 @@
+ak = 10001
+rep ak:
+    ak -= 1
+if (ak != 0):
+    getwcore 'stdout' '[Test 6] Rep Loop 2\t [FAILED]\n'
+else:
+    getwcore 'stdout' '[Test 6] Rep Loop 2\t [PASSED]\n'

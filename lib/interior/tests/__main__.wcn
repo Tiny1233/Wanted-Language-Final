@@ -1,0 +1,13 @@
+# Run this for Wanted stability test
+
+ext @file: all/1_StandardOutput.wcn
+ext @file: all/2_If.wcn
+ext @file: all/3_If_2.wcn
+ext @file: all/4_Eif.wcn
+ext @file: all/5_RepLoop_1.wcn
+ext @file: all/6_RepLoop_2_.wcn
+ext @file: all/7_Operator_1.wcn
+ext @file: all/8_Operator_2.wcn
+
+## Statistics
+# getwcore 'stdout' 'Total' + c + 'tests. Fail: ' + (c - sc) + 'Pass: ' + sc + 'Ratio: ' + sc / c * 100 + '%'

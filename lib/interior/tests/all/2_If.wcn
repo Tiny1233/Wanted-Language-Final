@@ -1,0 +1,5 @@
+if true:    
+    getwcore 'stdout' '[Test 2] If\t[PASSED]\n'
+  
+else:
+    getwcore 'stdout' '[Test 2] If\t[FAILED]\n'

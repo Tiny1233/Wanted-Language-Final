@@ -1,0 +1,6 @@
+# String operation
+
+func string(num):
+    return ('' + num)
+
+getwcore 'stdout' string(4)

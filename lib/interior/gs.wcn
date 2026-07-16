@@ -1,0 +1,17 @@
+a = 1
+n = 1000
+rep n:
+    b = a
+    rep n-b:
+        getwcore 'stdout' a
+        getwcore 'stdout' 'x'
+        getwcore 'stdout' b
+        getwcore 'stdout' '='
+        getwcore 'stdout' (a*b)
+        getwcore 'stdout' '\t'
+        b = b + 1
+    a = a + 1
+    getwcore 'stdout' '\n'
+
+        
+        

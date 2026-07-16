@@ -1,0 +1,4 @@
+if (8*'5'== '55555555'):
+    getwcore 'stdout' '[Test 8] Operator 2\t [PASSED]\n'
+else:
+    getwcore 'stdout' '[Test 8] Operator 2\t [FAILED]\n'

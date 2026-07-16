@@ -1,0 +1,8 @@
+aj = 0
+rep 5:
+    aj = aj + 1
+
+if aj == 5:
+    getwcore 'stdout' '[Test 5] Rep Loop 1\t [PASSED]\n'
+else:
+    getwcore 'stdout' '[Test 5] Rep Loop 1\t [FAILED]\n'

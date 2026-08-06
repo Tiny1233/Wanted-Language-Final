@@ -3,4 +3,9 @@
 func string(num):
     return ('' + num)
 
-getwcore 'stdout' string(4)
+func repstr(times, str):
+    if times > 0:
+        return (times * str)
+
+    return false
+

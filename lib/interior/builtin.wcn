@@ -1,5 +1,19 @@
 # Wanted built-in file
 
+# Constants
+true = 1
+false = 0
+
+
+
+func not(condition):
+    if condition:
+        return false
+    
+    return true
+
+
+
 func out(cont):
     getwcore 'stdout' cont
 

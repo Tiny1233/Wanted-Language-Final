@@ -470,7 +470,10 @@ class NumberType(Type):
         while not isinstance(other, (StringType, NumberType, 'ListType')):
             other = other.get()
         return NumberType(lib.wcore.dec.sub(self.get() , other.get()))
-    
+    def __pow__(self, other):
+        while not isinstance(other, (StringType, NumberType)):
+            other = other.get()
+        return NumberType(lib.wcore.dec.pow(self.get() , other.get()))
     def __mul__(self, other):
         while not isinstance(other, (StringType, NumberType, 'ListType')):
             other = other.get()
@@ -572,7 +575,10 @@ class Variable(Type):
     def __repr__(self):
         value = self.get()
         return repr(value) if value is not None else 'None'
-    
+    def __pow__(self, other):
+        while not isinstance(other, (StringType, NumberType)):
+            other = other.get()
+        return (self.get() ** other)
     def __add__(self, other):
         while not isinstance(other, (StringType, NumberType)):
             other = other.get()
@@ -771,13 +777,13 @@ class BinaryOperator:
     def get(self):
         a = self.a
         b = self.b
-        while not isinstance(a, (StringType, NumberType, ListType)):
-            
+        # unwrap wrapper objects until we get a primitive (String/Number/List)
+        while not isinstance(a, (StringType, NumberType, ListType)) and hasattr(a, 'get'):
             a = a.get()
             # print('a', type(a))
       
         
-        while not isinstance(b, (StringType, NumberType, ListType)):
+        while not isinstance(b, (StringType, NumberType, ListType)) and hasattr(b, 'get'):
             # print('b', type(self.b))
             b = b.get()
         
@@ -789,6 +795,8 @@ class BinaryOperator:
                 return (a - b)
             case '*':
                 return (a * b)
+            case '^':
+                return (a ** b)
             case '/':
                 return (a / b) if b.get() != 0 else (NumberType(INF) if a.get() > 0 else NumberType(-INF))
 

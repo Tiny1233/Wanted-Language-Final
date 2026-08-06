@@ -638,10 +638,36 @@ def interpret(tokens: list, the_first_time_running: True):
             float(name)
             return NumberType(int(float(name)) if int(float(name)) == float(name) else float(name))
         except Exception:
-            if isinstance(name, str) and name.startswith("'") and name.endswith("'"):
-                return StringType(name[1:-1])
+            if isinstance(name, str):
+                if name.startswith("'") and name.endswith("'"):
+                    return StringType(name[1:-1])
+                lower_name = name.lower()
+                if lower_name == 'true':
+                    return NumberType(1)
+                if lower_name == 'false':
+                    return NumberType(0)
             return Variable(name)
 
+    def resolve_arg_value(expr):
+        val = tag(expr)
+        while True:
+            if isinstance(val, (NumberType, StringType, ListType)):
+                break
+            if hasattr(val, "get"):
+                nxt = val.get()
+                if nxt is val:
+                    break
+                val = nxt
+            else:
+                break
+        # --------调试打印--------
+        print(f"[debug] resolve_arg_value final val={val}, type={type(val)}")
+        # ------------------------
+        if isinstance(val, (int, float)):
+            val = NumberType(val)
+        elif isinstance(val, str):
+            val = StringType(val)
+        return val
     def parse_token(token):
         if token == 'break':
             cb.code_lines.append(KeywordCodeLine('break', [], line))
@@ -734,6 +760,7 @@ def interpret(tokens: list, the_first_time_running: True):
                         if isinstance(prev, KeywordCodeLine) and prev.name in ('if', 'eif'):
                             prev_conditional = prev
                             break
+        
 
                     if kw == 'else':
                         if prev_conditional:
@@ -790,7 +817,7 @@ def interpret(tokens: list, the_first_time_running: True):
                         ext_lines = [l for l in ext_file.read().split('\n') if l.strip() != '' and not l.strip().startswith('#')]
                     # print(ext_lines, path)
                     ext_tokens = tokenize(ext_lines)
-                    ext_cb = interpret(ext_tokens, the_first_time_running=True)
+                    ext_cb = interpret(ext_tokens, the_first_time_running=False)
                     # cb.code_lines.extend(ext_cb.code_lines)
                 else:
                     Error('Ext Error', f"Included file '{arg}' not found.", line).emit()
@@ -815,30 +842,30 @@ def interpret(tokens: list, the_first_time_running: True):
                         pass
 
                     # support user-defined functions stored as (CodeBlock, arg_names)
+             
                     try:
                         val = var.value
                         if isinstance(val, tuple) and isinstance(val[0], CodeBlock):
                             body_block, arg_names = val
-                            # evaluate provided args from token[1] if present
                             provided = []
                             if len(token) > 1 and isinstance(token[1], list):
                                 provided = token[1]
 
-                            # create temporary VariableSpace entries for args
                             saved_len = len(var_list)
                             try:
                                 for i, name in enumerate(arg_names):
                                     arg_expr = provided[i] if i < len(provided) else NumberType(0)
-                                    # tag the expression to get a Type instance
-                                    arg_val = tag(arg_expr) if not isinstance(arg_expr, (NumberType, StringType, ListType)) else arg_expr
+                                    # 【核心】在这里直接完整求值，得到真实运行时值
+                                    arg_val = resolve_arg_value(arg_expr)
+                                    # arg_val现在一定是NumberType/StringType/ListType，不要再做Variable查找！
                                     var_list.append(VariableSpace(name, arg_val))
-                                # run function body
                                 body_block.run()
                             finally:
-                                # remove temporary args
                                 while len(var_list) > saved_len:
                                     var_list.pop()
                             return
+                    except Exception:
+                        pass
                     except Exception:
                         pass
 

@@ -1,3 +1,6 @@
-ext @builtin.wcn
+func out(a):
+    getwcore 'stdout' 'prints: ' + a + '\n'
 
-outs('333')
+out('4\n')
+sth = 114514
+out(sth)

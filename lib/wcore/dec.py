@@ -14,3 +14,9 @@ def div(a, b):
     if isinstance(a, int) and isinstance(b, int): return a / b
     return float(d(str(a)) / d(str(b)))
 
+def pow(a, b):
+    if isinstance(a, int) and isinstance(b, int): return a ** b
+    return float(d(str(a)) ** d(str(b)))
+
+
+

@@ -19,11 +19,12 @@ func out(cont):
 
 func outs(cont, sep):
     if sep:
-        getwcore 'stdout' (cont + sep)
+        out(cont + sep)
     else:
-        getwcore 'stdout' (cont + '\n')
+        out(cont + '\n')
 
 func outln(cont):
     getwcore 'stdout' cont + '\n'
+
 
 

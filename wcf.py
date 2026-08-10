@@ -452,6 +452,8 @@ class StringType(Type):
         return f"'{self.value}'"
 
     def __add__(self, other):
+        if isinstance(other, str):
+            other = StringType(other)
         while not isinstance(other, (StringType, NumberType, ListType)):
             other = other.get(local_vars=None, global_vars=None)
 

@@ -1,6 +1,10 @@
-func out(a):
-    getwcore 'stdout' 'prints: ' + a + '\n'
+func print(cont):
+    getwcore 'stdout' cont
 
-out('4\n')
-sth = 114514
-out(sth)
+func test(x):
+    y = x + 10
+    z = y + 20
+    print(z)
+
+test(99)
+

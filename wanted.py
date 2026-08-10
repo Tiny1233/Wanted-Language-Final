@@ -3,6 +3,8 @@
 import os
 import sys
 import wcf
+import traceback
+
 
 command = sys.argv[1]
 BASE_DIR = os.path.dirname(os.path.abspath(command))
@@ -391,39 +393,54 @@ ListType.__radd__ = _listtype_add
 
 BreakLoop = wcf.BreakLoop
 
+class FunctionReturn(Exception):
+    def __init__(self, value):
+        self.value = value
+
 BREAK_DEPTH = 0
 # when a break occurs, set this to skip executing any following 'final' blocks
 WANTED_SKIP_FINAL = False
 
 _original_keyword_get = KeywordCodeLine.get
 
-def _wanted_keyword_get(self):
+def resolve_arg_value(node, local_vars: list | None = None, global_vars: list | None = None):
+    if local_vars is None:
+        local_vars = []
+    if global_vars is None:
+        global_vars = var_list
+
+    if isinstance(node, (Variable, BinaryOperator)):
+        return node.get(local_vars, global_vars)
+    
+    if hasattr(node, "get") and isinstance(node, (CodeLine, Type)):
+        return node.get(local_vars, global_vars)
+    return node
+
+def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
     # support 'break' keyword to interrupt execution and avoid running final blocks
     if self.name == 'break':
         # mark to skip final blocks and raise to unwind loop
         globals()['WANTED_SKIP_FINAL'] = True
         raise BreakLoop()
     if self.name == 'ext':
-   
         if len(self.arg) != 1:
             cnt = len(self.arg)
             plural = 'was' if cnt < 2 else 'were'
             Error('Ext Error', f"1 argument was expected, but {cnt} {plural} given.", self.line).emit()
 
         path_arg = self.arg[0]
-        path = path_arg.get() if hasattr(path_arg, 'get') else path_arg
-        if isinstance(path, StringType) or isinstance(path, NumberType):
-            path = path.get() if hasattr(path, 'get') else path
+        path_node = resolve_arg_value(path_arg, local_vars, global_vars)
+        path = resolve_arg_value(path_node, local_vars, global_vars)
+
         if not os.path.isabs(path):
             path = os.path.join(BASE_DIR, path)
- 
+
         if os.path.exists(path):
             with open(path, 'r', encoding='utf-8') as ext_file:
                 ext_lines = [l for l in ext_file.read().split('\n') if l.strip() != '' and not l.strip().startswith('#')]
             ext_tokens = tokenize(ext_lines)
             ext_cb = interpret(ext_tokens, the_first_time_running=False)
-    
-            ext_cb.run()
+            ext_cb.run(local_vars, global_vars)
             return None
 
         Error('Ext Error', f"Included file '{path}' not found.", self.line).emit()
@@ -435,83 +452,110 @@ def _wanted_keyword_get(self):
             plural = 'was' if cnt < 2 else 'were'
             Error('GetWCore Error', f"2 sub arguments were expected, but {cnt} {plural} given.", self.line).emit()
 
-        subcommand = self.arg[0]
-        subcontent = self.arg[1]
-        command = subcommand.get()
+        subcommand_node = self.arg[0]
+        subcontent_node = self.arg[1]
+
+        command = resolve_arg_value(subcommand_node, local_vars, global_vars)
+        command = resolve_arg_value(command, local_vars, global_vars)
 
         # do not cache stdin reads across repeated executions of the same line
         # so each prompt occurs every time the code reaches getwcore 'stdin'.
         match command:
             case 'stdout':
-                # attempt to evaluate subcontent robustly; some composite
-                # subcontent nodes may return None on first try, so try
-                # calling get() repeatedly / fallback to resolving wrapped
-                # values to obtain a printable result.
-                try:
-                    result = subcontent.get()
-                except Exception:
-                    # fallback: try resolving via repeated .get()
-                    result = subcontent
-                    try:
-                        while hasattr(result, 'get'):
-                            result = result.get()
-                    except Exception:
-                        pass
-                    
-                # respect global ONLY_FILTER: if set, only allow prints that equal this value
-                out_val = result.get() if isinstance(result, (StringType, NumberType)) else result
+                result = resolve_arg_value(subcontent_node, local_vars, global_vars)
+                out_val = resolve_arg_value(result, local_vars, global_vars)
+
                 if globals().get('ONLY_FILTER') is None or str(out_val) == str(globals().get('ONLY_FILTER')):
                     import lib.wcore.wsfilter as ws
+
                     def format_wcore_output(item):
-                        if isinstance(item, ListType):
-                            return '{' + ', '.join(format_wcore_output(sub_item) for sub_item in item.get()) + '}'
-                        if isinstance(item, NumberType):
-                            return str(ws.wsfilter(str(item.get())))
-                        if isinstance(item, StringType):
-                            return "'" + str(ws.wsfilter(item.get())) + "'"
-                        if hasattr(item, 'get'):
-                            return format_wcore_output(item.get())
-                        return "'" + str(ws.wsfilter(str(item))) + "'"
+                        item_val = resolve_arg_value(item, local_vars, global_vars)
+                        if isinstance(item_val, ListType):
+                            inner = [resolve_arg_value(sub_item, local_vars, global_vars) for sub_item in item_val.get()]
+                            return '{' + ', '.join(format_wcore_output(sub_item) for sub_item in inner) + '}'
+                        if isinstance(item_val, NumberType):
+                            return str(ws.wsfilter(str(item_val.get())))
+                        if isinstance(item_val, StringType):
+                            return "'" + str(ws.wsfilter(str(item_val.get()))) + "'"
+                        return "'" + str(ws.wsfilter(str(item_val.get()))) + "'"
+
                     if isinstance(out_val, ListType):
-                        print('{' + ', '.join(format_wcore_output(item) for item in out_val.get()) + '}', end='')
+                        list_items = [resolve_arg_value(it, local_vars, global_vars) for it in out_val.get()]
+                        print('{' + ', '.join(format_wcore_output(item) for item in list_items) + '}', end='')
                     else:
                         print(ws.wsfilter(str(out_val)), end='')
                 return result
 
             case 'stdin':
-                prompt = subcontent.get()
-                if isinstance(prompt, (StringType, NumberType)):
-                    prompt = prompt.get()
+                prompt_raw = resolve_arg_value(subcontent_node, local_vars, global_vars)
+                prompt = resolve_arg_value(prompt_raw, local_vars, global_vars)
                 result = StringType(input(prompt))
                 return result
 
+    if self.name == 'return':
+        return_value = NumberType(0)
+        if self.arg:
+            return_value = resolve_arg_value(self.arg[0], local_vars, global_vars)
+        raise FunctionReturn(return_value)
+
     return _original_keyword_get(self)
 
-KeywordCodeLine.get = _wanted_keyword_get
+
+# 包装层：适配统一get接口，接收 self + local_vars + global_vars
+def _keyword_code_line_get(self, local_vars: list | None = None, global_vars: list | None = None):
+    if local_vars is None:
+        local_vars = []
+    if global_vars is None:
+        global_vars = var_list
+    return _wanted_keyword_get_impl(self, local_vars, global_vars)
+
+
+KeywordCodeLine.get = _keyword_code_line_get
+
+_original_function_call_get = wcf.FunctionCall.get
+
+def _wanted_function_call_get(self, *args, **kwargs):
+    try:
+        return _original_function_call_get(self, *args, **kwargs)
+    except FunctionReturn as e:
+        return e.value
+
+wcf.FunctionCall.get = _wanted_function_call_get
 
 _original_variable_definition_get = VariableDefinitionCodeLine.get
 
-def _wanted_variable_definition_get(self):
+def _wanted_variable_definition_get(self, local_vars: list | None = None, global_vars: list | None = None):
+    if local_vars is None:
+        local_vars = []
+    if global_vars is None:
+        global_vars = var_list
+
     t = self.arg[0]
-    while not isinstance(t, (NumberType, StringType, ListType)):
-        if not hasattr(t, 'get'):
-            break
-        t = t.get()
+    # 改用 resolve_arg_value 做求值，自动透传上下文，不要再手写while+t.get()
+    t = resolve_arg_value(t, local_vars, global_vars)
 
     if isinstance(t, str):
         t = StringType(t)
     elif isinstance(t, (int, float)):
         t = NumberType(t)
     elif isinstance(t, list):
-        t = ListType([StringType(str(item)) if not isinstance(item, (NumberType, StringType, ListType, Type)) else item for item in t])
+        t = ListType([
+            StringType(str(item))
+            if not isinstance(item, (NumberType, StringType, ListType, Type))
+            else item
+            for item in t
+        ])
 
-    for var in var_list:
+   
+    target_list = local_vars if local_vars else global_vars
+
+    for var in target_list:
         if var.name == self.name:
             var.value = t
-            return t.get() if hasattr(t, 'get') else t
+            return resolve_arg_value(t, local_vars, global_vars)
 
-    var_list.append(VariableSpace(self.name, t))
-    return t.get() if hasattr(t, 'get') else t
+    target_list.append(VariableSpace(self.name, t))
+    return resolve_arg_value(t, local_vars, global_vars)
 
 VariableDefinitionCodeLine.get = _wanted_variable_definition_get
 
@@ -528,6 +572,7 @@ def interpret(tokens: list, the_first_time_running: True):
         return False
     line = 0
     cb = CodeBlock([])
+
     class IndexType(Type):
         def __init__(self, base, index):
             self.base = base
@@ -613,6 +658,15 @@ def interpret(tokens: list, the_first_time_running: True):
     
     def tag(name):
         # print(name)
+        def resolve_binary_operand(node):
+            if hasattr(node, 'get'):
+                try:
+                    return node.get()
+                except Exception as e:
+                    print('[BINOPR ERROR] Failed to resolve binary operand:', e)
+                    return node
+            return node
+
         if isinstance(name, list):
             if name and name[0] == 'index' and len(name) == 3:
                 return IndexType(tag(name[1]), tag(name[2]))
@@ -622,7 +676,7 @@ def interpret(tokens: list, the_first_time_running: True):
                 return ListType([tag(el) for el in elems])
             # handle binary operators including arithmetic, comparison and bit ops
             if len(name) == 3 and isinstance(name[1], str) and name[1] in ['+', '-', '*', '/', '==', '!=', '<', '>', '<=', '>=', '&', '|']:
-                return BinaryOperator(name[1], tag(name[0]), tag(name[2]))
+                return BinaryOperator(name[1], resolve_binary_operand(tag(name[0])), resolve_binary_operand(tag(name[2])))
             if name and name[0] == 'getwcore' and len(name) == 2:
                 arg = name[1]
                 if isinstance(arg, list) and len(arg) == 2:
@@ -648,27 +702,10 @@ def interpret(tokens: list, the_first_time_running: True):
                     return NumberType(0)
             return Variable(name)
 
-    def resolve_arg_value(expr):
-        val = tag(expr)
-        while True:
-            if isinstance(val, (NumberType, StringType, ListType)):
-                break
-            if hasattr(val, "get"):
-                nxt = val.get()
-                if nxt is val:
-                    break
-                val = nxt
-            else:
-                break
-        # --------调试打印--------
-        print(f"[debug] resolve_arg_value final val={val}, type={type(val)}")
-        # ------------------------
-        if isinstance(val, (int, float)):
-            val = NumberType(val)
-        elif isinstance(val, str):
-            val = StringType(val)
-        return val
+    
+    
     def parse_token(token):
+       
         if token == 'break':
             cb.code_lines.append(KeywordCodeLine('break', [], line))
             return
@@ -689,6 +726,12 @@ def interpret(tokens: list, the_first_time_running: True):
             # token expected like ['assert', <expr>]
             arg = token[1] if len(token) > 1 else NumberType(0)
             cb.code_lines.append(KeywordCodeLine('assert', [tag(arg)], line))
+            return
+
+        # return directive: function return value
+        if token and token[0] == 'return':
+            arg = token[1] if len(token) > 1 else NumberType(0)
+            cb.code_lines.append(KeywordCodeLine('return', [tag(arg)], line))
             return
 
         # nested block, e.g. ['rep', ['num', '+', '1'], ':'] with child body
@@ -725,30 +768,52 @@ def interpret(tokens: list, the_first_time_running: True):
                     else:
                         cb.code_lines.append(KeywordCodeLine('final', [body_block], line))
                     return
-
+                # token 形如 ["ret", expr_ast]
+                
                 # function definition: func name(args):
                 if kw == 'func':
-                    # header[1] expected like ['name', args] or 'name'
                     name_part = header[1] if len(header) > 1 else None
                     func_name = None
                     func_args = []
+                    print(f"[FUNC_HEADER_RAW] header = {header}")
+                    print(f"[FUNC_HEADER_RAW] name_part = {name_part}")
+                
+                 
+                    
+
+                    # 兜底：如果已经被变成AST节点，尝试提取名字
                     if isinstance(name_part, list) and len(name_part) >= 1:
-                        func_name = name_part[0]
+                        # 函数名
+                        first = name_part[0]
+                        if isinstance(first, str):
+                            func_name = first
+                        elif hasattr(first, "name"):
+                            func_name = first.name
+
                         if len(name_part) > 1:
                             arg_part = name_part[1]
                             if isinstance(arg_part, list):
-                                func_args = [arg for arg in arg_part if isinstance(arg, str)]
+                                for item in arg_part:
+                                    if isinstance(item, str):
+                                        func_args.append(item)
+                                    elif hasattr(item, "name"):
+                                        # AST节点，提取name属性作为形参名字
+                                        func_args.append(item.name)
+                                    else:
+                                        raise TypeError(f"Function parameters must be strings. Now is {type(item)}")
                             elif isinstance(arg_part, str):
                                 func_args = [arg_part]
+                            elif hasattr(arg_part, "name"):
+                                func_args = [arg_part.name]
                     elif isinstance(name_part, str):
                         func_name = name_part
+                    elif hasattr(name_part, "name"):
+                        func_name = name_part.name
 
                     body_block = interpret(body, the_first_time_running=False)
                     if func_name:
-                        # register as a VariableSpace so calls can find it
-               
+                        print(f"[FUNC_DEF_STORE] func={func_name}, args={func_args}")
                         var_list.append(VariableSpace(func_name, (body_block, func_args)))
-         
                     return
 
                 # if / eif (else-if) / else blocks
@@ -824,57 +889,29 @@ def interpret(tokens: list, the_first_time_running: True):
 
             return
 
-        # ignore unsupported keywords: ext, if, else, eif
 
-        # simple function call execution: ['name', args] or ['name', arg]
+        # simple function call: ['name', [arg1, arg2]]
         if isinstance(token, list) and token and isinstance(token[0], str):
             func_name = token[0]
-            # find variable by name
-            for var in var_list:
-                if var.name == func_name:
-                    # if it's a CodeBlock (function), run it when interpreting first time
-                    try:
-                        if isinstance(var.value, CodeBlock) and the_first_time_running:
-                            # allow optional args ignored for now
-                            var.value.run()
-                            return
-                    except Exception:
-                        pass
-
-                    # support user-defined functions stored as (CodeBlock, arg_names)
-             
-                    try:
-                        val = var.value
-                        if isinstance(val, tuple) and isinstance(val[0], CodeBlock):
-                            body_block, arg_names = val
-                            provided = []
-                            if len(token) > 1 and isinstance(token[1], list):
-                                provided = token[1]
-
-                            saved_len = len(var_list)
-                            try:
-                                for i, name in enumerate(arg_names):
-                                    arg_expr = provided[i] if i < len(provided) else NumberType(0)
-                                    # 【核心】在这里直接完整求值，得到真实运行时值
-                                    arg_val = resolve_arg_value(arg_expr)
-                                    # arg_val现在一定是NumberType/StringType/ListType，不要再做Variable查找！
-                                    var_list.append(VariableSpace(name, arg_val))
-                                body_block.run()
-                            finally:
-                                while len(var_list) > saved_len:
-                                    var_list.pop()
-                            return
-                    except Exception:
-                        pass
-                    except Exception:
-                        pass
+            arg_tokens = token[1] if (len(token)>1 and isinstance(token[1],list)) else []
+            ast_args = []
+            for item in arg_tokens:
+                ast_args.append(tag(item))
+            # 只生成FunctionCall AST节点，加入code_lines，仅此而已！
+            cb.code_lines.append(wcf.FunctionCall(func_name, ast_args, line))
+            return
+                 
 
     for token in tokens:
         line += 1
         parse_token(token)
 
     if the_first_time_running:
-        cb.run()
+        print("====TOP CODEBLOCK====")
+        for idx, line in enumerate(cb.code_lines):
+            print(idx, type(line).__name__, repr(line))
+        print("======================")
+        cb.run(local_vars=[], global_vars=var_list)
     else:
         return cb
         

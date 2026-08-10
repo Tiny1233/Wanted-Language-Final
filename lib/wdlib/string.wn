@@ -1,0 +1,15 @@
+# String operation
+
+abstract func str(num: NumberType) -> StringType:
+    # @brief Convert a number into a string.
+    # @param num: (wcf.NumberType) The number to be converted
+    # @return wcf.StringType
+    ...
+
+abstract func repstr(times: NumberType, _str: StringType):
+    # @brief Repeat string for some times.
+    # @param times: (wcf.NumberType.IntType.PositiveIntType) How many times to repeat?
+    # @param _str: (wcf.StringType) The string to be repeated.
+    # @return wcf.StringType
+    ...
+

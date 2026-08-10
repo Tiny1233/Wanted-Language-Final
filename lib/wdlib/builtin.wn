@@ -1,0 +1,32 @@
+# Wanted built-in file for implements
+
+# Constants BooleanType aka wcf.NumberType
+true = 1
+false = 0
+
+abstract func not(condition: BooleanType)* -> BooleanType: 
+    # @brief Returns false if the condition is true, else false.
+    # @param condition: (wcf.NumberType) The condition to be operated.
+    # @return wcf.NumberType(BooleanType): The opposite boolean.
+    ...
+
+abstract func out(cont: StringType) -> StringType:
+    # @brief Outputs without seperating with endline or whitespace.
+    # @param cont: (wcf.StringType) Something to be output.
+    # @return wcf.StringType: aka. cont.
+    ...
+
+abstract func outs(cont: StringType, sep: StringType) -> StringType:
+    # @brief Outputs content seperated with customize seperator.
+    # @param cont: (wcf.StringType) Something to be output.
+    # @param sep: (wcf.StringType) The seperator added after cont printed.
+    # @return wcf.StringType: Just returns cont.
+    ...
+
+abstract func outln(cont) -> StringType:
+    # @brief Outputs content seperated with a new line.
+    # @param cont: (wcf.StringType) Something to be output.
+    # @return wcf.StringType: aka. cont.
+    ...
+
+

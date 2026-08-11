@@ -1,10 +1,9 @@
-func print(cont):
-    getwcore 'stdout' cont
+ext @builtin.wcn
 
 func test(x):
     y = x + 10
     z = y + 20
-    print(z)
+    outln(z + z)
 
 test(99)
 

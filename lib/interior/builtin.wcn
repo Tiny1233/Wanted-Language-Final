@@ -4,7 +4,11 @@
 true = 1
 false = 0
 
-
+func set_wdbg(on_or_off):
+    if on_or_off:
+        getwcore 'wdbg' true
+    else:
+        getwcore 'wdbg' false
 
 func not(condition):
     if condition:
@@ -25,6 +29,8 @@ func outs(cont, sep):
 
 func outln(cont):
     getwcore 'stdout' cont + '\n'
+
+set_wdbg(false)
 
 
 

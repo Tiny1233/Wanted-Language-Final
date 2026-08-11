@@ -10,6 +10,7 @@
 import math
 import sys
 import lib.wcore.dec
+from lib.dbg import print_debug as print_debug, set_debug_mode as set_debug_mode
 
 
 
@@ -27,10 +28,14 @@ class Error:
         self.filename = filename
 
     def emit(self):
-        print( 'Error in Wanted File occured')
-        print(f'Location: in file {self.filename}[{self.line}]')
-        print(f'{self.content}')
-        print(f'{self.attr}: {self.des}')
+        RED = '\033[31m'
+        BLUE = '\033[34m'
+        BOLD = '\033[1m'
+        RESET = '\033[0m'
+        print(RED + 'Error in Wanted File occured' + RESET)
+        print(RED + f'Location: in file {self.filename}[{self.line}]' + RESET)
+        print(BLUE   + f'{self.content}' + RESET)
+        print(RED + BOLD + f'{self.attr}: ' + RESET + RED + f'{self.des}' + RESET)
         sys.exit(1)
 
 
@@ -76,19 +81,30 @@ class KeywordCodeLine(CodeLine):
                 from lib.wcore.wsfilter import wsfilter
                 match subcommand.get():
                     case 'stdout':
-                        result = subcontent.get(local_vars=None, global_vars=None)
+                        result = subcontent.get(local_vars, global_vars)
                         if isinstance(result, (StringType, NumberType)):
-                            print(wsfilter(result.get(local_vars=None, global_vars=None)), end='')
+                            print(wsfilter(result.get(local_vars, global_vars)), end='')
                         elif isinstance(result, ListType):
-                            print(', '.join([str(wsfilter(i.get(local_vars=None, global_vars=None))) for i in result.get(local_vars=None, global_vars=None)]), end='')
+                            print(', '.join([str(wsfilter(i.get(local_vars, global_vars))) for i in result.get(local_vars, global_vars)]), end='')
                         return result
+                    case 'wdbg':
+                        # activate debugmode?
+                        val = subcontent.get(local_vars, global_vars)
+                        
+                        if val:
+                            set_debug_mode(True)
+                        else:
+                            set_debug_mode(False)
+                        return NumberType(1) if val else NumberType(1)
+
+
                     
                     case 'stdin':
-                        prompt = subcontent.get(local_vars=None, global_vars=None)
+                        prompt = subcontent.get(local_vars, global_vars)
                         print(prompt)
                         
                         if isinstance(prompt, (StringType, NumberType)):
-                            prompt = prompt.get(local_vars=None, global_vars=None)
+                            prompt = prompt.get(local_vars, global_vars)
                         return StringType(input(prompt))
             
             case 'rep':
@@ -97,7 +113,7 @@ class KeywordCodeLine(CodeLine):
                 final_block = self.arg[2] if len(self.arg) == 3 else None
                 reptime = self.arg[0]
                 while not isinstance(reptime, (StringType, NumberType)):
-                    reptime = reptime.get(local_vars=None, global_vars=None)
+                    reptime = reptime.get(local_vars, global_vars)
                 repbody = self.arg[1]
 
                 if not isinstance(reptime, NumberType):
@@ -105,10 +121,10 @@ class KeywordCodeLine(CodeLine):
                 if not isinstance(repbody, CodeBlock):
                     Error('InitialDebugError', 'WCB was expected.')
                 # Runtime error
-                if math.isinf(reptime.get(local_vars=None, global_vars=None)) or abs(int(reptime.get(local_vars=None, global_vars=None))) if math.isinf(reptime.get(local_vars=None, global_vars=None)) else 16777217 > 16777216:
+                if math.isinf(reptime.get(local_vars, global_vars)) or abs(int(reptime.get(local_vars, global_vars))) if math.isinf(reptime.get(local_vars, global_vars)) else 16777217 > 16777216:
                     Error('PerformanceError', 'Repeation times out of expectation, maximum 16777216.')
                 broken = False
-                for ct in range(abs(int(reptime.get(local_vars=None, global_vars=None)))):
+                for ct in range(abs(int(reptime.get(local_vars, global_vars)))):
                     try:
                         repbody.run()
                     except BreakLoop:
@@ -120,6 +136,7 @@ class KeywordCodeLine(CodeLine):
                 return
             
             case 'if':
+                print_debug(f'[IFCL] local_vars: {[(v.name, v.value) for v in local_vars]}')
                 if len(self.arg) < 2:
                     Error('SyntaxError', 'If statement expected condition and body.', self.line).emit()
 
@@ -131,20 +148,20 @@ class KeywordCodeLine(CodeLine):
                     Error('TypeError', 'If branch must be a code block.', self.line).emit()
 
                 while not isinstance(condition, (StringType, NumberType)):
-                    condition = condition.get(local_vars=None, global_vars=None)
+                    condition = condition.get(local_vars, global_vars)
 
                 if not isinstance(condition, (StringType, NumberType)):
                     Error('TypeError', 'Condition must evaluate to a number or string.', self.line).emit()
 
                 def _is_true(value):
                     if isinstance(value, NumberType):
-                        return value.get(local_vars=None, global_vars=None) != 0
+                        return value.get(local_vars, global_vars) != 0
                     if isinstance(value, StringType):
-                        return value.get(local_vars=None, global_vars=None) != ''
+                        return value.get(local_vars, global_vars) != ''
                     return bool(value)
            
                 if _is_true(condition):
-                    then_block.run()
+                    then_block.run(local_vars=local_vars, global_vars=global_vars)
                     return
 
                 for branch in self.arg[2:]:
@@ -162,7 +179,7 @@ class KeywordCodeLine(CodeLine):
                         if not isinstance(elif_block, CodeBlock):
                             Error('TypeError', 'Eif branch must be a code block.', self.line).emit()
                         while not isinstance(elif_condition, (StringType, NumberType)):
-                            elif_condition = elif_condition.get(local_vars=None, global_vars=None)
+                            elif_condition = elif_condition.get(local_vars, global_vars)
                         if not isinstance(elif_condition, (StringType, NumberType)):
                             Error('TypeError', 'Eif condition must evaluate to a number or string.', self.line).emit()
                         if _is_true(elif_condition):
@@ -196,15 +213,15 @@ class KeywordCodeLine(CodeLine):
 
                 def _is_true(value):
                     if isinstance(value, NumberType):
-                        return value.get(local_vars=None, global_vars=None) != 0
+                        return value.get(local_vars, global_vars) != 0
                     if isinstance(value, StringType):
-                        return value.get(local_vars=None, global_vars=None) != ''
+                        return value.get(local_vars, global_vars) != ''
                     return bool(value)
 
                 def _eval_condition():
                     cond = condition
                     while not isinstance(cond, (StringType, NumberType)):
-                        cond = cond.get(local_vars=None, global_vars=None)
+                        cond = cond.get(local_vars, global_vars)
                     if not isinstance(cond, (StringType, NumberType)):
                         Error('TypeError', 'While condition must evaluate to a number or string.', self.line).emit()
                     return cond
@@ -265,23 +282,23 @@ class KeywordCodeLine(CodeLine):
                     message = self.arg[1]
 
                 while not isinstance(condition, (StringType, NumberType)):
-                    condition = condition.get(local_vars=None, global_vars=None)
+                    condition = condition.get(local_vars, global_vars)
 
                 if not isinstance(condition, (StringType, NumberType)):
                     Error('TypeError', 'Assert condition must evaluate to a number or string.', self.line).emit()
 
                 cond_true = False
                 if isinstance(condition, NumberType):
-                    cond_true = condition.get(local_vars=None, global_vars=None) != 0
+                    cond_true = condition.get(local_vars, global_vars) != 0
                 elif isinstance(condition, StringType):
-                    cond_true = condition.get(local_vars=None, global_vars=None) != ''
+                    cond_true = condition.get(local_vars, global_vars) != ''
 
                 if not cond_true:
                     msg_text = ''
                     if message is not None:
                         while not isinstance(message, (StringType, NumberType)):
-                            message = message.get(local_vars=None, global_vars=None)
-                        msg_text = str(message.get(local_vars=None, global_vars=None)) if isinstance(message, (StringType, NumberType)) else repr(message)
+                            message = message.get(local_vars, global_vars)
+                        msg_text = str(message.get(local_vars, global_vars)) if isinstance(message, (StringType, NumberType)) else repr(message)
                     Error('AssertionError', msg_text or 'Assertion failed.', self.line).emit()
                 return
 
@@ -293,7 +310,7 @@ class KeywordCodeLine(CodeLine):
                     Error('SyntaxError', 'Return expected zero or one expression.', self.line).emit()
                 val = self.arg[0]
                 while not isinstance(val, (StringType, NumberType, ListType)):
-                    val = val.get(local_vars=None, global_vars=None)
+                    val = val.get(local_vars, global_vars)
                 raise ReturnException(val)
 
             case 'func':
@@ -306,7 +323,7 @@ class KeywordCodeLine(CodeLine):
 
                 # resolve function name
                 if isinstance(fname, StringType):
-                    fname_str = fname.get(local_vars=None, global_vars=None)
+                    fname_str = fname.get(local_vars, global_vars)
                 elif isinstance(fname, Variable):
                     fname_str = fname.name
                 else:
@@ -316,7 +333,7 @@ class KeywordCodeLine(CodeLine):
                 param_names = []
                 def _normalize_param_item(p):
                     if isinstance(p, StringType):
-                        return p.get(local_vars=None, global_vars=None)
+                        return p.get(local_vars, global_vars)
                     if isinstance(p, str):
                         return p
                     if isinstance(p, Variable):
@@ -328,7 +345,7 @@ class KeywordCodeLine(CodeLine):
                     Error('TypeError', 'Function parameters must be strings.', self.line).emit()
 
                 if isinstance(params, ListType):
-                    raw_params = params.get(local_vars=None, global_vars=None)
+                    raw_params = params.get(local_vars, global_vars)
                 elif isinstance(params, (list, tuple)):
                     raw_params = params
                 elif isinstance(params, (StringType, str, Variable, VariableDefinitionCodeLine, KeywordCodeLine)):
@@ -359,7 +376,7 @@ class KeywordCodeLine(CodeLine):
                             # ensure aval is a Type
                             v = aval
                             while not isinstance(v, (StringType, NumberType, ListType)):
-                                v = v.get(local_vars=None, global_vars=None)
+                                v = v.get(local_vars, global_vars)
                             var = VariableSpace(pname, v)
                             var_list.append(var)
                             added.append(var)
@@ -402,9 +419,9 @@ class CodeBlock:
         if global_vars is None:
             global_vars = var_list
 
-        print('[CodeBlock] Variable list of names: ')
-        print('[CodeBlock] local vars: ', [(v.name, v.value) for v in local_vars])
-        print('[CodeBlock] global vars: ', [(v.name, v.value) for v in global_vars])
+        print_debug('[CodeBlock] Variable list of names: ')
+        print_debug('[CodeBlock] local vars: ', [(v.name, v.value) for v in local_vars])
+        print_debug('[CodeBlock] global vars: ', [(v.name, v.value) for v in global_vars])
 
         for i in range(len(self.code_lines)):
             self.code_lines[i].get(local_vars, global_vars)
@@ -450,18 +467,6 @@ class StringType(Type):
     
     def __repr__(self):
         return f"'{self.value}'"
-
-    def __add__(self, other):
-        if isinstance(other, str):
-            other = StringType(other)
-        while not isinstance(other, (StringType, NumberType, ListType)):
-            other = other.get(local_vars=None, global_vars=None)
-
-        if isinstance(other, NumberType):
-            return StringType(self.get(local_vars=None, global_vars=None) + str(other.get(local_vars=None, global_vars=None)))
-
-        return StringType(self.get(local_vars=None, global_vars=None) + other.get(local_vars=None, global_vars=None))
-
     def get_index(self, ind: NumberType):
         while not isinstance(ind, (StringType, NumberType)):
             ind = ind.get(local_vars=None, global_vars=None)
@@ -479,45 +484,7 @@ class NumberType(Type):
     def __repr__(self):
         return str(self.value)
     
-    def __add__(self, other):
-        if isinstance(other, (int, float)):
-            other = NumberType(other)
-        while not isinstance(other, (StringType, NumberType, ListType)):
-            other = other.get(local_vars=None, global_vars=None)
-        from lib.wcore.numconv import number as n
-        if isinstance(other, StringType): return NumberType(self.get(local_vars=None, global_vars=None) + n(other.get(local_vars=None, global_vars=None)))
-        return NumberType(lib.wcore.dec.add(self.get(local_vars=None, global_vars=None) , other.get(local_vars=None, global_vars=None)))
-    
-    def __sub__(self, other):
-        if isinstance(other, (int, float)):
-            other = NumberType(other)
-        while not isinstance(other, (StringType, NumberType, ListType)):
-            other = other.get(local_vars=None, global_vars=None)
-        return NumberType(lib.wcore.dec.sub(self.get(local_vars=None, global_vars=None) , other.get(local_vars=None, global_vars=None)))
-    def __pow__(self, other):
-        if isinstance(other, (int, float)):
-            other = NumberType(other)
-        while not isinstance(other, (StringType, NumberType)):
-            other = other.get(local_vars=None, global_vars=None)
-        return NumberType(lib.wcore.dec.pow(self.get(local_vars=None, global_vars=None) , other.get(local_vars=None, global_vars=None)))
-    def __mul__(self, other):
-        if isinstance(other, (int, float)):
-            other = NumberType(other)
-        while not isinstance(other, (StringType, NumberType, ListType)):
-            other = other.get(local_vars=None, global_vars=None)
-        if isinstance(other, NumberType):
-            return NumberType(lib.wcore.dec.mul(self.get(local_vars=None, global_vars=None) , other.get(local_vars=None, global_vars=None)))
-        if isinstance(other, StringType):
-            return StringType(other.get(local_vars=None, global_vars=None)*self.get(local_vars=None, global_vars=None))
-        
-        Error('SyntaxError', 'Operator * expected to match type either NumberType or StringType.', self.line)
-
-    def __truediv__(self, other):
-        if isinstance(other, (int, float)):
-            other = NumberType(other)
-        while not isinstance(other, (StringType, NumberType, ListType)):
-            other = other.get(local_vars=None, global_vars=None)
-        return NumberType(lib.wcore.dec.div(self.get(local_vars=None, global_vars=None) , other.get(local_vars=None, global_vars=None))) if other.get(local_vars=None, global_vars=None) != 0 else NumberType(INF)
+    # Numeric/string/list operator implementations moved to BinaryOperator
 
 
 class ListType(Type):
@@ -542,11 +509,10 @@ class ListType(Type):
         return self.value
 
     def __add__(self, other):
+        # kept minimal: behavior moved to BinaryOperator
         if isinstance(other, ListType):
-            for i in other.get():
-                self.value.append(i)
-        else:
-            self.value.append(other)
+            return ListType(self.get(local_vars=None, global_vars=None) + other.get(local_vars=None, global_vars=None))
+        return ListType(self.get(local_vars=None, global_vars=None) + [other])
 
     def __repr__(self):
         return '{' + ', '.join(repr(x) for x in self.value) + '}'
@@ -566,7 +532,7 @@ class VariableSpace: # Won't be declared in Wanted Codes
 
 class VariableDefinitionCodeLine(CodeLine):
     def __init__(self, var_name: str, arg: list[Type], line: int = 0):
-        print(f'[VAR_DEF] {var_name} = {arg}')
+        print_debug(f'[VAR_DEF] {var_name} = {arg}')
         self.name = var_name
         self.arg = arg
         self.line = line
@@ -581,7 +547,7 @@ class VariableDefinitionCodeLine(CodeLine):
         t = self.arg[0]
         # 这里！不要 t.get()，要把上下文传下去
         while not isinstance(t, (NumberType, StringType)):
-            print(F'[TYPE OF T:{self.var_name}] ', type(t))
+            print_debug(F'[TYPE OF T:{self.var_name}] ', type(t))
             t = t.get(local_vars, global_vars)
 
         # 顶层脚本赋值写 global_vars；函数内部赋值写 local_vars
@@ -613,11 +579,11 @@ class Variable(Type):
             local_vars = []
         if global_vars is None:
             global_vars = var_list
-        print('[VAR CALL]Variable get() called for variable name:', self.name)
+        print_debug('[VAR CALL]Variable get() called for variable name:', self.name)
         lv = [(v.name, v.value) for v in local_vars]
-        print(f'[VAR CALL {self.name}] local_vars name&value: {lv}')
+        print_debug(f'[VAR CALL {self.name}] local_vars name&value: {lv}')
         gv = [(v.name, v.value) for v in global_vars]
-        print(f'[VAR CALL {self.name}] global_vars name&value: {gv}')
+        print_debug(f'[VAR CALL {self.name}] global_vars name&value: {gv}')
 
         for vs in reversed(local_vars):
             if vs.name == self.name:
@@ -638,7 +604,7 @@ class FunctionCall(CodeLine):
         self.fname = fname
         self.args = args
         self.line = line
-        print(f'Callable {fname} feedback!')
+        print_debug(f'Callable {fname} feedback!')
 
     def get(self, local_vars: list | None = None, global_vars: list | None = None):
         if local_vars is None:
@@ -646,7 +612,7 @@ class FunctionCall(CodeLine):
         if global_vars is None:
             global_vars = var_list
 
-        print("[FC_DEBUG] FunctionCall get enter, global_vars ids=%d, real var_list id=%d" % (id(global_vars), id(var_list)))
+        print_debug("[FC_DEBUG] FunctionCall get enter, global_vars ids=%d, real var_list id=%d" % (id(global_vars), id(var_list)))
 
         # 查找函数名
         target_var = None
@@ -657,15 +623,15 @@ class FunctionCall(CodeLine):
         if target_var is None:
             raise RuntimeError(f"Undefined function '{self.fname}'")
 
-        print(f"[FC_DUMP] raw value = {target_var.value}")
-        print(f"[FC_DUMP] value type = {type(target_var.value)}")
+        print_debug(f"[FC_DUMP] raw value = {target_var.value}")
+        print_debug(f"[FC_DUMP] value type = {type(target_var.value)}")
 
         val = target_var.value
         if not isinstance(val, tuple):
             raise RuntimeError(f"Function store expects tuple, got {type(val)}")
         body_block, arg_names = val
 
-        print(f"[FC_GET] arg_names={arg_names}, types={[type(x) for x in arg_names]}")
+        print_debug(f"[FC_GET] arg_names={arg_names}, types={[type(x) for x in arg_names]}")
         for p in arg_names:
             if not isinstance(p, str):
                 raise TypeError(f"Function formal parameters must be strings. Now is {type(p)}")
@@ -688,7 +654,7 @@ class FunctionCall(CodeLine):
         for a in (self.args or []):
             v = _resolve_type(a, local_vars, global_vars)
             eval_args.append(v)
-        print(f"resolved args values: {eval_args}")
+        print_debug(f"resolved args values: {eval_args}")
 
         # 参数数量校验
         if len(eval_args) != len(arg_names):
@@ -732,57 +698,77 @@ class BinaryOperator:
     def get(self, local_vars=None, global_vars=None):
         a = self.a
         b = self.b
-        # unwrap wrapper objects until we get a primitive (String/Number/List)
-        while not isinstance(a, (StringType, NumberType, ListType)) and hasattr(a, 'get'):
-            a = a.get(local_vars, global_vars)
-            # print('a', type(a))
-      
-        
-        while not isinstance(b, (StringType, NumberType, ListType)) and hasattr(b, 'get'):
-            # print('b', type(self.b))
-            b = b.get(local_vars, global_vars)
-        
+
+        def _resolve(value):
+            while not isinstance(value, (StringType, NumberType, ListType)) and hasattr(value, 'get'):
+                value = value.get(local_vars, global_vars)
+            return value
+
+        a = _resolve(a)
+        b = _resolve(b)
+
+        a_val = a.get(local_vars, global_vars) if isinstance(a, (StringType, NumberType, ListType)) else a
+        b_val = b.get(local_vars, global_vars) if isinstance(b, (StringType, NumberType, ListType)) else b
+
         # arithmetic
         match self.operator:
             case '+':
-                return (a + b)
+                if isinstance(a, ListType) and isinstance(b, ListType):
+                    return ListType(a_val + b_val)
+                if isinstance(a, ListType):
+                    return ListType(a_val + ([b_val] if not isinstance(b_val, list) else b_val))
+                if isinstance(b, ListType):
+                    return ListType(([a_val] if not isinstance(a_val, list) else a_val) + b_val)
+                if isinstance(a, StringType) or isinstance(b, StringType):
+                    return StringType(str(a_val) + str(b_val))
+                return NumberType(a_val + b_val)
             case '-':
-                return (a - b)
+                return NumberType(a_val - b_val)
             case '*':
-                return (a * b)
+                if isinstance(a, StringType) and isinstance(b, NumberType):
+                    return StringType(a_val * int(b_val))
+                if isinstance(b, StringType) and isinstance(a, NumberType):
+                    return StringType(b_val * int(a_val))
+                if isinstance(a, ListType) and isinstance(b, NumberType):
+                    return ListType(a_val * int(b_val))
+                if isinstance(b, ListType) and isinstance(a, NumberType):
+                    return ListType(b_val * int(a_val))
+                return NumberType(a_val * b_val)
             case '^':
-                return (a ** b)
+                return NumberType(a_val ** b_val)
             case '/':
-                return (a / b) if b.get(local_vars=None, global_vars=None) != 0 else (NumberType(INF) if a.get(local_vars=None, global_vars=None) > 0 else NumberType(-INF))
+                if isinstance(b_val, (int, float)) and float(b_val) == 0:
+                    return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)
+                return NumberType(a_val / b_val)
 
-        # comparisons (return NumberType(1) for true, NumberType(0) for false)
-        try:
-            aval = a.get(local_vars=None, global_vars=None) if isinstance(a, (NumberType, StringType, ListType)) else a
-            bval = b.get(local_vars=None, global_vars=None) if isinstance(b, (NumberType, StringType, ListType)) else b
-        except Exception:
-            aval = a
-            bval = b
+        def _is_truthy(value):
+            if isinstance(value, list):
+                return len(value) != 0
+            return bool(value)
+
+        aval = a_val
+        bval = b_val
 
         match self.operator:
             case '>':
-                return NumberType(1) if float(aval) > float(bval) else NumberType(0)
+                return NumberType(1) if aval > bval else NumberType(0)
             case '<':
-                return NumberType(1) if float(aval) < float(bval) else NumberType(0)
+                return NumberType(1) if aval < bval else NumberType(0)
             case '==':
                 return NumberType(1) if aval == bval else NumberType(0)
             case '<=':
-                return NumberType(1) if float(aval) <= float(bval) else NumberType(0)
+                return NumberType(1) if aval <= bval else NumberType(0)
             case '>=':
-                return NumberType(1) if float(aval) >= float(bval) else NumberType(0)
+                return NumberType(1) if aval >= bval else NumberType(0)
             case '!=':
                 return NumberType(1) if aval != bval else NumberType(0)
             case '&':
-                return NumberType(1) if (float(aval) != 0 and float(bval) != 0) else NumberType(0)
+                return NumberType(1) if (_is_truthy(aval) and _is_truthy(bval)) else NumberType(0)
             case '|':
-                return NumberType(1) if (float(aval) != 0 or float(bval) != 0) else NumberType(0)
+                return NumberType(1) if (_is_truthy(aval) or _is_truthy(bval)) else NumberType(0)
 
             case _:
-                return 0
+                return NumberType(0)
     
     def __repr__(self):
         return '<BinaryOperator {}>'.format(self.operator)

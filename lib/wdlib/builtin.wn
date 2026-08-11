@@ -4,6 +4,11 @@
 true = 1
 false = 0
 
+abstract func set_wdbg(on_or_off):
+    # @brief Set whether the Wanted debugger is on or off
+    # @param on_or_off: literally
+    ...
+
 abstract func not(condition: BooleanType)* -> BooleanType: 
     # @brief Returns false if the condition is true, else false.
     # @param condition: (wcf.NumberType) The condition to be operated.
@@ -29,4 +34,5 @@ abstract func outln(cont) -> StringType:
     # @return wcf.StringType: aka. cont.
     ...
 
-
+# It turns off debugger automatically, and you can turn on by calling the function.
+set_wdbg(false)

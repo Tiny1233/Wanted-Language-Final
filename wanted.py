@@ -3,7 +3,10 @@
 import os
 import sys
 import wcf
-import traceback
+from lib.dbg import print_debug as print_debug, set_debug_mode as set_debug_mode
+set_debug_mode(False)
+
+
 
 
 command = sys.argv[1]
@@ -498,7 +501,7 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
             return_value = resolve_arg_value(self.arg[0], local_vars, global_vars)
         raise FunctionReturn(return_value)
 
-    return _original_keyword_get(self)
+    return _original_keyword_get(self, local_vars, global_vars)
 
 
 # 包装层：适配统一get接口，接收 self + local_vars + global_vars
@@ -659,12 +662,12 @@ def interpret(tokens: list, the_first_time_running: True):
     def tag(name):
         # print(name)
         def resolve_binary_operand(node):
-            if hasattr(node, 'get'):
-                try:
-                    return node.get()
-                except Exception as e:
-                    print('[BINOPR ERROR] Failed to resolve binary operand:', e)
-                    return node
+            # if hasattr(node, 'get'):
+            #     try:
+            #         return node.get()
+            #     except Exception as e:
+            #         print('[BINOPR ERROR] Failed to resolve binary operand:', e)
+            #         return node
             return node
 
         if isinstance(name, list):
@@ -775,8 +778,8 @@ def interpret(tokens: list, the_first_time_running: True):
                     name_part = header[1] if len(header) > 1 else None
                     func_name = None
                     func_args = []
-                    print(f"[FUNC_HEADER_RAW] header = {header}")
-                    print(f"[FUNC_HEADER_RAW] name_part = {name_part}")
+                    print_debug(f"[FUNC_HEADER_RAW] header = {header}")
+                    print_debug(f"[FUNC_HEADER_RAW] name_part = {name_part}")
                 
                  
                     
@@ -812,7 +815,7 @@ def interpret(tokens: list, the_first_time_running: True):
 
                     body_block = interpret(body, the_first_time_running=False)
                     if func_name:
-                        print(f"[FUNC_DEF_STORE] func={func_name}, args={func_args}")
+                        print_debug(f"[FUNC_DEF_STORE] func={func_name}, args={func_args}")
                         var_list.append(VariableSpace(func_name, (body_block, func_args)))
                     return
 
@@ -907,10 +910,10 @@ def interpret(tokens: list, the_first_time_running: True):
         parse_token(token)
 
     if the_first_time_running:
-        print("====TOP CODEBLOCK====")
+        print_debug("====TOP CODEBLOCK====")
         for idx, line in enumerate(cb.code_lines):
-            print(idx, type(line).__name__, repr(line))
-        print("======================")
+            print_debug(idx, type(line).__name__, repr(line))
+        print_debug("======================")
         cb.run(local_vars=[], global_vars=var_list)
     else:
         return cb

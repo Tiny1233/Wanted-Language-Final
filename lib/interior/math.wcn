@@ -7,7 +7,7 @@ abstract E =  2.71828182845904523536028747135266249775724709369996
 
 # float to int
 func float_to_int(origin):
-    return (origin // 1)
+    return ((0 + origin) // 1)
 
 func floor(origin):
     base_i = float_to_int(origin)
@@ -17,10 +17,10 @@ func floor(origin):
         return base_i - 1
 
 func ceil(origin):
-    return floor(origin) + 1
+    return floor(0 + origin) + 1
 
 func ceiling(origin):
-    return ceil(origin)
+    return ceil(0 + origin)
 
 func round(origin):
-    return floor(origin + 1/2)
+    return floor((0 + origin) + 1 / 2)

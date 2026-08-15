@@ -66,6 +66,7 @@ func int(sth):
 
 
 set_wdbg(_wcore_wdbg_status)
+set_rt(_wcore_rt_on)
 
 
 

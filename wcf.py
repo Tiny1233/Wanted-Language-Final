@@ -21,7 +21,7 @@ true = True
 
 INF = math.inf
 TINY = 0.000000000000001
-TIME_REC_ACTIVATE = True
+TIME_REC_ACTIVATE = False
 
 
 
@@ -106,6 +106,7 @@ class KeywordCodeLine(CodeLine):
 
 
                     case 'rt':
+                        global TIME_REC_ACTIVATE 
                         val = subcontent.get(local_vars, global_vars)
 
                         if val:

@@ -71,6 +71,13 @@ abstract func outln(cont: StringType) -> StringType:
     # @return wcf.StringType: aka. cont.
     ...
 
+abstract func input(prompt):
+    # @brief Provide the user with stdin terminal input.
+    # @param prompt: (wcf.StringType) What shows before you input to prompt what you should enter here.
+    # @return wcf.StringType: The content which the user inputs.
+    res = (getwcore 'stdin' prompt)
+    return res
+
 
 # Type converts 
 abstract func num(sth: any) -> NumberType:
@@ -88,3 +95,4 @@ abstract func int(sth: any) -> NumberType:
 
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)
+set_rt(_wcore_rt_on)

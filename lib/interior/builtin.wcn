@@ -4,11 +4,23 @@
 true = 1
 false = 0
 
+# Program settings
+_wcore_wdbg_status = false
+_wcore_rt_on = false
+
 func set_wdbg(on_or_off):
     if on_or_off:
-        getwcore 'wdbg' true
+        _wcore_wdbg_status = true
     else:
-        getwcore 'wdbg' false
+        _wcore_wdbg_status = false
+    _wcore_wdbg(_wcore_wdbg_status)
+
+func set_rt(on_or_off):
+    if on_or_off:
+        _wcore_rt_on = true
+    else:
+        _wcore_rt_on = false
+    _wcore_rt(_wcore_rt_on)
 
 func not(condition):
     if condition:
@@ -16,10 +28,18 @@ func not(condition):
     
     return true
 
+func _wcore_stdout(subcontent):
+    getwcore 'stdout' subcontent
+
+func _wcore_wdbg(subcontent):
+    getwcore 'wdbg' subcontent
+
+func _wcore_rt(subcontent):
+    getwcore 'rt' subcontent
 
 
 func out(cont):
-    getwcore 'stdout' cont
+    _wcore_stdout(cont)
 
 func outs(cont, sep):
     if sep:
@@ -30,7 +50,22 @@ func outs(cont, sep):
 func outln(cont):
     getwcore 'stdout' cont + '\n'
 
-set_wdbg(false)
+func input(prompt):
+    res = (getwcore 'stdin' prompt)
+    return res
+
+# Type converts
+func num(sth):
+    return 0 + sth
+
+func int(sth):
+    # there is more int function in math.wcn
+    # also math.float_to_int but more stable.
+
+    return (0 + sth) // 1 # 0 + sth returns number and use // 1 to convert
+
+
+set_wdbg(_wcore_wdbg_status)
 
 
 

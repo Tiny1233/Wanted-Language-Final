@@ -1,9 +1,11 @@
 ext @builtin.wcn
 
-func test(x):
-    y = x + 10
-    z = y + 20
-    outln(z + z)
 
-test(99)
+func stored fibo(n):
+    if n < 2:
+        return 1
+    else:
+        return fibo(n - 1) + fibo(n - 2)
 
+
+outln(fibo(40))

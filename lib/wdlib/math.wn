@@ -1,0 +1,38 @@
+# Wanted mathematics library for completion
+# *?* %built 26/08/12
+
+# Constants
+abstract PI = 3.14159265358979323846264338327950288419716939937510
+abstract E =  2.71828182845904523536028747135266249775724709369996
+
+# float to int part
+
+abstract func float_to_int(origin: NumberType) -> NumberType:
+    # @brief Keep the integer part of a number.
+    # @param origin: (wcf.NumberType) A float number.
+    # @return wcf.NumberType: The processed integer.
+    ...
+
+abstract func floor(origin: NumberType) -> NumberType:
+    # @brief Returns the floor value of a number.
+    # @param origin: (wcf.NumberType) A float number.
+    # @return wcf.NumberType: The processed integer.
+    ...
+
+abstract func ceil(origin: NumberType) -> NumberType:
+    # @brief Returns the ceiling value of a number.
+    # @param origin: (wcf.NumberType) A float number.
+    # @return wcf.NumberType: The processed integer.
+    ...
+
+abstract func ceiling(origin: NumberType) -> NumberType:
+    # @brief Returns the ceiling value of a number, aka. math.ceil().
+    # @param origin: (wcf.NumberType) A float number.
+    # @return wcf.NumberType: The processed integer.
+    ...
+
+abstract func round(origin: NumberType) -> NumberType:
+    # @brief Returns the round value of a number, the integer part will be added 1 if the decimal part is not less than 0.5.
+    # @param origin: (wcf.NumberType) A float number.
+    # @return wcf.NumberType: The processed integer (round value).
+    ...

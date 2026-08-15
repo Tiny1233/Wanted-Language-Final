@@ -9,13 +9,19 @@
 
 import math
 import sys
+import os
+import json
+import pickle
+import atexit
 import lib.wcore.dec
 from lib.dbg import print_debug as print_debug, set_debug_mode as set_debug_mode
 
-
+false = False
+true = True
 
 INF = math.inf
 TINY = 0.000000000000001
+TIME_REC_ACTIVATE = True
 
 
 
@@ -71,6 +77,7 @@ class KeywordCodeLine(CodeLine):
             local_vars = []
         if global_vars is None:
             global_vars = var_list
+        # print('[KW NAME]' + self.name)
         match self.name:
             case 'getwcore':
                 if len(self.arg) != 2:
@@ -96,6 +103,19 @@ class KeywordCodeLine(CodeLine):
                         else:
                             set_debug_mode(False)
                         return NumberType(1) if val else NumberType(1)
+
+
+                    case 'rt':
+                        val = subcontent.get(local_vars, global_vars)
+
+                        if val:
+                            TIME_REC_ACTIVATE = True
+                        else:
+                            TIME_REC_ACTIVATE = False
+
+
+                        return NumberType(TIME_REC_ACTIVATE)
+
 
 
                     
@@ -126,12 +146,12 @@ class KeywordCodeLine(CodeLine):
                 broken = False
                 for ct in range(abs(int(reptime.get(local_vars, global_vars)))):
                     try:
-                        repbody.run()
+                        repbody.run(local_vars=local_vars, global_vars=global_vars)
                     except BreakLoop:
                         broken = True
                         break
                 if final_block is not None and not broken:
-                    final_block.run()
+                    final_block.run(local_vars=local_vars, global_vars=global_vars)
                 
                 return
             
@@ -166,7 +186,7 @@ class KeywordCodeLine(CodeLine):
 
                 for branch in self.arg[2:]:
                     if isinstance(branch, CodeBlock):
-                        branch.run()
+                        branch.run(local_vars=local_vars, global_vars=global_vars)
                         return
                     if not isinstance(branch, KeywordCodeLine):
                         Error('SyntaxError', 'Invalid branch in if statement.', self.line).emit()
@@ -183,7 +203,7 @@ class KeywordCodeLine(CodeLine):
                         if not isinstance(elif_condition, (StringType, NumberType)):
                             Error('TypeError', 'Eif condition must evaluate to a number or string.', self.line).emit()
                         if _is_true(elif_condition):
-                            elif_block.run()
+                            elif_block.run(local_vars=local_vars, global_vars=global_vars)
                             return
                         continue
 
@@ -193,7 +213,7 @@ class KeywordCodeLine(CodeLine):
                         else_block = branch.arg[0]
                         if not isinstance(else_block, CodeBlock):
                             Error('TypeError', 'Else branch must be a code block.', self.line).emit()
-                        else_block.run()
+                        else_block.run(local_vars=local_vars, global_vars=global_vars)
                         return
 
                     Error('SyntaxError', 'Invalid branch in if statement.', self.line).emit()
@@ -229,13 +249,12 @@ class KeywordCodeLine(CodeLine):
                 broken = False
                 while _is_true(_eval_condition()):
                     try:
-                        while_body.run()
+                        while_body.run(local_vars=local_vars, global_vars=global_vars)
                     except BreakLoop:
                         broken = True
                         break
-
                 if else_body is not None and not broken:
-                    else_body.run()
+                    else_body.run(local_vars=local_vars, global_vars=global_vars)
                 return
 
             case 'ext':
@@ -303,6 +322,8 @@ class KeywordCodeLine(CodeLine):
                 return
 
             case 'return':
+                # green output return called
+                # print('[RETURN] return called with args:', self.arg)
                 # return <value>
                 if len(self.arg) == 0:
                     raise ReturnException(NumberType(0))
@@ -523,19 +544,21 @@ class ListType(Type):
 
         return self.get(local_vars=None, global_vars=None)[ind.get(local_vars=None, global_vars=None)]
 class VariableSpace: # Won't be declared in Wanted Codes
-    def __init__(self, var_name: str, value: Type):
+    def __init__(self, var_name: str, value: Type, is_const: bool = False):
         self.name = var_name
         self.value = value
+        self.is_const = is_const
 
     def get(self, local_vars=None, global_vars=None):
         return self.value
 
 class VariableDefinitionCodeLine(CodeLine):
-    def __init__(self, var_name: str, arg: list[Type], line: int = 0):
+    def __init__(self, var_name: str, arg: list[Type], line: int = 0, is_const: bool = False):
         print_debug(f'[VAR_DEF] {var_name} = {arg}')
         self.name = var_name
         self.arg = arg
         self.line = line
+        self.is_const = is_const
 
     def get(self, local_vars: list | None = None, global_vars: list | None = None):
         if local_vars is None:
@@ -555,11 +578,13 @@ class VariableDefinitionCodeLine(CodeLine):
 
         for var in target_list:
             if var.name == self.name:
+                if var.is_const:
+                    Error('TypeError', f'Cannot reassign to readonly variable {self.name}.', self.line).emit()
                 var.value = t
                 flag = False
                 break
         if flag:
-            target_list.append(VariableSpace(self.name, t))
+            target_list.append(VariableSpace(self.name, t, self.is_const))
         return t
 
     # 修复：__repr__禁止调用get()，只打印静态信息，不执行业务逻辑
@@ -632,9 +657,16 @@ class FunctionCall(CodeLine):
         body_block, arg_names = val
 
         print_debug(f"[FC_GET] arg_names={arg_names}, types={[type(x) for x in arg_names]}")
+        # normalize parameter names: accept strings or Type/Variable with .name
+        normalized_arg_names = []
         for p in arg_names:
-            if not isinstance(p, str):
+            if isinstance(p, str):
+                normalized_arg_names.append(p)
+            elif hasattr(p, 'name'):
+                normalized_arg_names.append(p.name)
+            else:
                 raise TypeError(f"Function formal parameters must be strings. Now is {type(p)}")
+        arg_names = normalized_arg_names
 
         # --------------------------
         # 上面到此为止，不要再解析 self.fname、不要再 vs.get()！
@@ -647,6 +679,14 @@ class FunctionCall(CodeLine):
                     value = value.get(local, global_)
                 else:
                     break
+            # wrap raw python primitives into Type instances so function
+            # local variable table always stores Type objects
+            if isinstance(value, (int, float)):
+                return NumberType(value)
+            if isinstance(value, str):
+                return StringType(value)
+            if isinstance(value, list):
+                return ListType(value)
             return value
 
         # 解析实参
@@ -656,6 +696,28 @@ class FunctionCall(CodeLine):
             eval_args.append(v)
         print_debug(f"resolved args values: {eval_args}")
 
+        func_name = _normalize_function_name(self.fname, local_vars, global_vars)
+        is_user_defined_func = _is_user_defined_function_name(func_name, local_vars, global_vars)
+        args_key = _normalize_cache_args(eval_args)
+
+        # only memoize actual func-defined user functions; ignore builtins/side-effect calls
+        print_debug('[CACHE INFO]function_call_cache='+str(function_call_cache))
+        print_debug('[CACHE INFO]function_call_disk_cache='+str(function_call_disk_cache))
+        try:
+            if is_user_defined_func:
+                if func_name in function_call_cache and args_key in function_call_cache[func_name]:
+                    cached_value = function_call_cache[func_name][args_key]
+                    print_debug(f"[FC_CACHE_HIT-MEM] func={func_name}, args={args_key}, value={cached_value}")
+                    return _from_primitive(cached_value)
+                
+                if func_name in function_call_disk_cache and args_key in function_call_disk_cache[func_name]:
+                    cached_value = function_call_disk_cache[func_name][args_key]
+                    function_call_cache.setdefault(func_name, {})[args_key] = cached_value
+                    print_debug(f"[FC_CACHE_HIT-DISK] func={func_name}, args={args_key}, value={cached_value}")
+                    return _from_primitive(cached_value)
+        except Exception as e:
+            print_debug('[CACHE_ERROR]', e)
+
         # 参数数量校验
         if len(eval_args) != len(arg_names):
             Error('TypeError', f'Function {self.fname} expected {len(arg_names)} arguments, got {len(eval_args)}.', self.line).emit()
@@ -663,17 +725,194 @@ class FunctionCall(CodeLine):
         # 构造函数局部变量表
         func_local = []
         for param_name, real_val in zip(arg_names, eval_args):
-            func_local.append(VariableSpace(param_name, real_val))
+            pname = param_name if isinstance(param_name, str) else str(param_name)
+            func_local.append(VariableSpace(pname, real_val))
 
-        # 执行函数体：局部表 + 全局表
+      
+        print_debug(f"[FC_BIND] func={self.fname}, params={[(v.name, type(v.value)) for v in func_local]}")
+    
+
         ret = NumberType(0)
+        print_debug(f'[FUNCTION RESOLVE {self.fname}]')
         try:
             body_block.run(func_local, global_vars)
+
         except ReturnException as re:
+
             ret = re.value
-        return _resolve_type(ret, local_vars, global_vars)
+            #print('[FUNCTION RETURN VAL]', ret)
+
+        print_debug(f'[FC {self.fname}]Run ended.')
+        result = _resolve_type(ret, local_vars, global_vars)
+        #print(f'[FC_CACHE {self.fname}] READY TO STORE')
+        try:
+            if not is_user_defined_func:
+                return result
+            prim = _to_primitive(result)
+            function_call_cache.setdefault(func_name, {})[args_key] = prim
+            function_call_disk_cache.setdefault(func_name, {})[args_key] = prim
+            print_debug(f"[FC_CACHE_STORE] func={func_name}, args={args_key}, value={prim}")
+        except Exception as e:
+            print_debug(f"[FC_CACHE_STORE_ERROR]" + str(e))
+
+        #print('[Function return value]', result)
+        return result
 
 var_list: list[VariableSpace] = [VariableSpace('true', NumberType(1)), VariableSpace('false', NumberType(0)), VariableSpace('inf', NumberType(INF)), VariableSpace('nega_inf', NumberType(-INF))]    
+# functions that must not be cached because they have side-effects
+NON_CACHEABLE_FUNCS = set(['out', 'outln', '_wcore_stdout', '_wcore_wdbg', 'input', 'getwcore', 'set_wdbg', 'outs'])
+# persistent cache for function calls stored on disk.
+# Cache format: { function_name: { (arg1,arg2,...): return_value_primitive, ... } }
+CACHE_FILE = os.path.join(os.path.dirname(__file__), 'function_cache.pkl')
+LEGACY_CACHE_FILE = os.path.join(os.path.dirname(__file__), 'function_cache.json')
+
+
+def _normalize_function_name(fname, local_vars=None, global_vars=None):
+    value = fname
+    if hasattr(value, 'get'):
+        try:
+            value = value.get(local_vars, global_vars)
+        except Exception:
+            pass
+    if hasattr(value, 'name') and not isinstance(value, str):
+        value = value.name
+    if isinstance(value, (StringType, NumberType)):
+        try:
+            value = value.get(local_vars, global_vars)
+        except Exception:
+            pass
+    return str(value)
+
+
+def _normalize_cache_value(value):
+    if isinstance(value, (NumberType, StringType, ListType)):
+        return value.get(local_vars=None, global_vars=None)
+    if isinstance(value, tuple):
+        return tuple(_normalize_cache_value(v) for v in value)
+    if isinstance(value, list):
+        return tuple(_normalize_cache_value(v) for v in value)
+    if isinstance(value, dict):
+        return tuple(sorted((str(k), _normalize_cache_value(v)) for k, v in value.items()))
+    return value
+
+
+def _normalize_cache_args(args):
+    return tuple(_normalize_cache_value(arg) for arg in args)
+
+
+def _is_user_defined_function_name(func_name, local_vars=None, global_vars=None):
+    if not func_name:
+        return False
+    search_scope = []
+    if local_vars is not None:
+        search_scope.extend(local_vars)
+    if global_vars is not None:
+        search_scope.extend(global_vars)
+    for variable in search_scope:
+        if getattr(variable, 'name', None) != func_name:
+            continue
+        value = getattr(variable, 'value', None)
+        if (
+            isinstance(value, tuple)
+            and len(value) == 2
+            and isinstance(value[0], CodeBlock)
+            and isinstance(value[1], (list, tuple))
+        ):
+            return True
+    return False
+
+
+def _prune_non_cacheable_cache_entries(cache):
+    if not isinstance(cache, dict):
+        return
+    # for name in list(cache.keys()):
+    #     if name in NON_CACHEABLE_FUNCS:
+    #         del cache[name]
+    #     elif not _is_user_defined_function_name(name):
+    #         del cache[name]
+
+
+def _load_disk_cache():
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'rb') as _cf:
+                cache = pickle.load(_cf)
+                if isinstance(cache, dict):
+                    _prune_non_cacheable_cache_entries(cache)
+                    return cache
+        except Exception:
+            pass
+    cache = {}
+    if os.path.exists(LEGACY_CACHE_FILE):
+        try:
+            with open(LEGACY_CACHE_FILE, 'r', encoding='utf-8') as _cf:
+                legacy = json.load(_cf)
+            if isinstance(legacy, dict):
+                for key, value in legacy.items():
+                    if isinstance(key, str) and '||' in key:
+                        name, _, _ = key.partition('||')
+                        # if name not in NON_CACHEABLE_FUNCS:
+                        cache.setdefault(name, {})[()] = value
+        except Exception:
+            pass
+    _prune_non_cacheable_cache_entries(cache)
+    _save_disk_cache(cache)
+    print_debug('[CACHE_LOAD] ' + str(cache))
+    return cache
+
+
+def _save_disk_cache(cache):
+    if cache is None:
+        cache = {}
+    try:
+        tmp_file = CACHE_FILE + '.tmp'
+        with open(tmp_file, 'wb') as _cf:
+            pickle.dump(cache, _cf, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_file, CACHE_FILE)
+    except Exception as e:
+        print_debug('[FC_CACHE_WRITE_ERROR]', str(e))
+
+
+def _flush_cache_on_exit():
+    try:
+        if function_call_disk_cache:
+            _save_disk_cache(function_call_disk_cache)
+    except Exception:
+        pass
+
+
+function_call_disk_cache = _load_disk_cache()
+
+# in-memory cache for Type objects keyed by function name -> arg tuple -> primitive result
+function_call_cache: dict = {}
+atexit.register(_flush_cache_on_exit)
+
+def _to_primitive(t):
+    # convert Type instance to JSON-serializable primitive
+    try:
+        if isinstance(t, NumberType):
+            return t.get(local_vars=None, global_vars=None)
+        if isinstance(t, StringType):
+            return t.get(local_vars=None, global_vars=None)
+        if isinstance(t, ListType):
+            return [_to_primitive(x) for x in t.get(local_vars=None, global_vars=None)]
+    except Exception:
+        pass
+    # fallback: stringify
+    try:
+        return str(t)
+    except Exception:
+        return None
+
+def _from_primitive(p):
+    if isinstance(p, list):
+        return ListType([_from_primitive(x) for x in p])
+    if isinstance(p, (int, float)):
+        return NumberType(p)
+    if isinstance(p, str):
+        return StringType(p)
+    # fallback
+    return StringType(str(p))
 class Operator:
     def __init__(self, operator: str):
         self.operator = operator
@@ -713,6 +952,17 @@ class BinaryOperator:
         # arithmetic
         match self.operator:
             case '+':
+                if isinstance(a, NumberType) and isinstance(b, StringType):
+                    # accept signed numeric strings like '-5' or '+3.2'
+                    b_is_num = False
+                    try:
+                        # allow leading +/- and one decimal point
+                        b_is_num = b_val.replace('.', '', 1).lstrip('+-').isdigit()
+                    except Exception:
+                        b_is_num = False
+                    return NumberType(a_val + float(b_val)) if b_is_num else StringType(str(a_val) + str(b_val))
+                if isinstance(a, StringType) and isinstance(b, NumberType):
+                    return StringType(a_val + str(b_val))
                 if isinstance(a, ListType) and isinstance(b, ListType):
                     return ListType(a_val + b_val)
                 if isinstance(a, ListType):
@@ -740,6 +990,10 @@ class BinaryOperator:
                 if isinstance(b_val, (int, float)) and float(b_val) == 0:
                     return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)
                 return NumberType(a_val / b_val)
+            case '//':
+                if isinstance(b_val, (int, float)) and float(b_val) == 0:
+                    return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)
+                return NumberType(int(a_val / b_val))
 
         def _is_truthy(value):
             if isinstance(value, list):

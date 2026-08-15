@@ -4,6 +4,7 @@ import os
 import sys
 import wcf
 from lib.dbg import print_debug as print_debug, set_debug_mode as set_debug_mode
+# enable debug temporarily to trace variable binding issues
 set_debug_mode(False)
 
 
@@ -35,7 +36,7 @@ def lex(line: str) -> list:
     import re
 
     # include braces so list literals can be written with { ... }
-    TOK_RE = re.compile(r"\s*(?:(\+=|-=|\*=|/=|==|!=|>=|<=|\d+(?:\.\d+)?|\w+|[:=+\-*/()\[\]{},<>!&|])|('(\\'|[^'])*'))")
+    TOK_RE = re.compile(r"\s*(?:(\+=|-=|\*=|/=|==|!=|>=|<=|\d+(?:\.\d+)?|//|\w+|[:=+\-*/()\[\]{},<>!&|])|('(\\'|[^'])*'))")
 
     # tokenize keeping quoted strings as one token
     tokens = []
@@ -81,6 +82,11 @@ def lex(line: str) -> list:
             return node if no_index else maybe_parse_index(node)
 
         t = peek()
+        # unary minus support: treat leading '-' as 0 - <expr>
+        if t == '-':
+            consume('-')
+            node = parse_primary()
+            return maybe_index(['0', '-', node])
         # list literal support: [a, b, 1] or {a, b, 1}
         if t == '[' or t == '{':
             opener = consume()
@@ -129,7 +135,7 @@ def lex(line: str) -> list:
     def parse_term():
         node = parse_primary()
         parts = [node]
-        while peek() in ('*', '/'):
+        while peek() in ('*', '/', '//'):
             op = consume()
             right = parse_primary()
             parts.append(op)
@@ -217,12 +223,22 @@ def lex(line: str) -> list:
             colon_i = tokens.index(':')
         except ValueError:
             colon_i = len(tokens)
+
+        if kw == 'func':
+            func_tokens = tokens[1:colon_i]
+            if func_tokens and func_tokens[0] == 'stored':
+                tail = ''.join(func_tokens[1:])
+                inner = lex(tail) if tail else []
+                return ['func', ['stored', inner], ':']
+
         # parse middle tokens
         mid_line = ''.join(tokens[1:colon_i])
         if mid_line:
             # naive: parse mid as expression
             inner = lex(mid_line)
+            print_debug("[LEX DEBUG] Keyword:", kw, "Inner tokens:", inner)
             if kw == 'assert' or kw == 'return':
+                
                 return [kw, inner]
 
             return [kw, inner, ':']
@@ -249,6 +265,15 @@ def lex(line: str) -> list:
         # preserve rest of line as a single string
         rest = line[len('only'):].strip()
         return ['only', rest]
+
+    # abstract constant definition: `abstract name = expr`
+    if tokens and tokens[0] == 'abstract':
+        if len(tokens) > 2 and tokens[2] == '=':
+            name = tokens[1]
+            rhs_tokens = ''.join(tokens[3:])
+            rhs = lex(rhs_tokens) if rhs_tokens else []
+            return ['abstract', name, '=', rhs]
+        return ['abstract']
 
     # compound assignment special: `a += 1`, `a -= 2`, etc.
     for op in ('+=', '-=', '*=', '/='):
@@ -323,29 +348,6 @@ def get_line_indent(line):
     return c_indent
 
 
-
-
-[
-    ['ext', '@builtin.wcc'],
-    ['num', '=', '0'], 
-    [
-        ['rep', ['num', '+', '1'], ':'],
-        [
-            ['getwcore', ["'stdout'", ['num', '+', '1']]],
-            ['getwcore', ["'stdout'", ['num', '+', '1']]],
-            [
-                ['if', 'num', ':'], 
-                [['output', ['num', '+', '1']]]
-            ], 
-            [
-                ['else', ':'], 
-                [['getwcore', ["'sysexit'", '1']]]
-            ]
-
-        ]
-    ]
-]
-
 from wcf import BinaryOperator as BinaryOperator, CodeBlock as CodeBlock, CodeLine as CodeLine, Error as Error, INF as INF, KeywordCodeLine as KeywordCodeLine, NumberType as NumberType, Operator as Operator, StringType as StringType, TINY as TINY, Type as Type, Variable as Variable, VariableDefinitionCodeLine as VariableDefinitionCodeLine, VariableSpace as VariableSpace, ListType as ListType, lib as lib, math as math, sys as sys, var_list as var_list
 
 # Add ListType addition support: allow concatenation with scalars or other lists.
@@ -396,9 +398,7 @@ ListType.__radd__ = _listtype_add
 
 BreakLoop = wcf.BreakLoop
 
-class FunctionReturn(Exception):
-    def __init__(self, value):
-        self.value = value
+
 
 BREAK_DEPTH = 0
 # when a break occurs, set this to skip executing any following 'final' blocks
@@ -418,6 +418,33 @@ def resolve_arg_value(node, local_vars: list | None = None, global_vars: list | 
     if hasattr(node, "get") and isinstance(node, (CodeLine, Type)):
         return node.get(local_vars, global_vars)
     return node
+
+
+def build_type_from_value(value):
+    """Convert a Python primitive or existing Type into a wcf Type instance."""
+    # already a Type
+    if isinstance(value, Type):
+        return value
+    if isinstance(value, StringType) or isinstance(value, NumberType) or isinstance(value, ListType):
+        return value
+    if isinstance(value, str):
+        return StringType(value)
+    if isinstance(value, (int, float)):
+        return NumberType(value)
+    if isinstance(value, list):
+        elems = []
+        for it in value:
+            if isinstance(it, Type):
+                elems.append(it)
+            elif isinstance(it, str):
+                elems.append(StringType(it))
+            elif isinstance(it, (int, float)):
+                elems.append(NumberType(it))
+            else:
+                elems.append(StringType(str(it)))
+        return ListType(elems)
+    # fallback: stringify
+    return StringType(str(value))
 
 def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
     # support 'break' keyword to interrupt execution and avoid running final blocks
@@ -448,6 +475,36 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
 
         Error('Ext Error', f"Included file '{path}' not found.", self.line).emit()
         return None
+
+    if self.name == 'abstract':
+        if len(self.arg) != 2:
+            Error('Const Definition Error', "abstract requires a name and a value.", self.line).emit()
+            return None
+
+        var_name = self.arg[0]
+        if hasattr(var_name, 'name'):
+            var_name = var_name.name
+        if not isinstance(var_name, str):
+            Error('Const Definition Error', "abstract variable name must be an identifier.", self.line).emit()
+            return None
+
+        value_node = self.arg[1]
+        value = resolve_arg_value(value_node, local_vars, global_vars)
+        value = build_type_from_value(value)
+
+        target_list = local_vars if local_vars else global_vars
+        for var in target_list:
+            if var.name == var_name:
+                Error('Const Definition Error', f"Cannot redefine constant '{var_name}'.", self.line).emit()
+                return None
+
+        const_var = VariableSpace(var_name, value)
+        try:
+            const_var.readonly = True
+        except Exception:
+            pass
+        target_list.append(const_var)
+        return resolve_arg_value(value, local_vars, global_vars)
 
     if self.name == 'getwcore':
         if len(self.arg) != 2:
@@ -496,10 +553,11 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
                 return result
 
     if self.name == 'return':
+        print_debug('[RETURN CALLED]')
         return_value = NumberType(0)
         if self.arg:
             return_value = resolve_arg_value(self.arg[0], local_vars, global_vars)
-        raise FunctionReturn(return_value)
+        raise wcf.ReturnException(return_value)
 
     return _original_keyword_get(self, local_vars, global_vars)
 
@@ -520,7 +578,7 @@ _original_function_call_get = wcf.FunctionCall.get
 def _wanted_function_call_get(self, *args, **kwargs):
     try:
         return _original_function_call_get(self, *args, **kwargs)
-    except FunctionReturn as e:
+    except wcf.ReturnException as e:
         return e.value
 
 wcf.FunctionCall.get = _wanted_function_call_get
@@ -554,6 +612,9 @@ def _wanted_variable_definition_get(self, local_vars: list | None = None, global
 
     for var in target_list:
         if var.name == self.name:
+            if getattr(var, 'readonly', False):
+                Error('Const Assignment Error', f"Cannot assign to constant '{self.name}'.", self.line).emit()
+                return None
             var.value = t
             return resolve_arg_value(t, local_vars, global_vars)
 
@@ -671,26 +732,33 @@ def interpret(tokens: list, the_first_time_running: True):
             return node
 
         if isinstance(name, list):
+            # handle index literal first: ['index', base, idx]
             if name and name[0] == 'index' and len(name) == 3:
                 return IndexType(tag(name[1]), tag(name[2]))
+
             # list literal: ['list', elems]
             if name and name[0] == 'list' and len(name) > 1:
                 elems = name[1]
                 return ListType([tag(el) for el in elems])
-            # handle binary operators including arithmetic, comparison and bit ops
-            if len(name) == 3 and isinstance(name[1], str) and name[1] in ['+', '-', '*', '/', '==', '!=', '<', '>', '<=', '>=', '&', '|']:
-                return BinaryOperator(name[1], resolve_binary_operand(tag(name[0])), resolve_binary_operand(tag(name[2])))
+
+            # getwcore keyword (special form)
             if name and name[0] == 'getwcore' and len(name) == 2:
                 arg = name[1]
                 if isinstance(arg, list) and len(arg) == 2:
                     return KeywordCodeLine('getwcore', [tag(arg[0]), tag(arg[1])], line)
-   
-            
+
+            # handle binary operators including arithmetic, comparison and bit ops
+            if len(name) == 3 and isinstance(name[1], str) and name[1] in ['+', '-', '*', '/', '//', '==', '!=', '<', '>', '<=', '>=', '&', '|']:
+                return BinaryOperator(name[1], resolve_binary_operand(tag(name[0])), resolve_binary_operand(tag(name[2])))
+
+            # function call pattern: ['fname', [arg1, arg2]] (after keywords/ops)
+            if len(name) == 2 and isinstance(name[0], str) and isinstance(name[1], list):
+                args_list = [tag(a) for a in name[1]]
+                return wcf.FunctionCall(name[0], args_list, line)
+
             if len(name) == 1:
                 return tag(name[0])
             return tag(name[0])
-        if len(name) == 2 and isinstance(name[0], str) and isinstance(name[1], list):
-            return wcf.FunctionCall(name[0], name[1], line)
         try:
             float(name)
             return NumberType(int(float(name)) if int(float(name)) == float(name) else float(name))
@@ -780,38 +848,52 @@ def interpret(tokens: list, the_first_time_running: True):
                     func_args = []
                     print_debug(f"[FUNC_HEADER_RAW] header = {header}")
                     print_debug(f"[FUNC_HEADER_RAW] name_part = {name_part}")
-                
-                 
-                    
 
-                    # 兜底：如果已经被变成AST节点，尝试提取名字
-                    if isinstance(name_part, list) and len(name_part) >= 1:
-                        # 函数名
-                        first = name_part[0]
-                        if isinstance(first, str):
-                            func_name = first
-                        elif hasattr(first, "name"):
-                            func_name = first.name
+                    def _extract_func_header(node):
+                        nonlocal func_name, func_args
+                        if isinstance(node, list):
+                            if len(node) >= 2 and node[0] == 'stored':
+                                return _extract_func_header(node[1])
+                            if len(node) >= 2 and isinstance(node[0], str) and isinstance(node[1], list):
+                                func_name = node[0]
+                                arg_part = node[1]
+                                if isinstance(arg_part, list):
+                                    for item in arg_part:
+                                        if isinstance(item, str):
+                                            func_args.append(item)
+                                        elif hasattr(item, 'name'):
+                                            func_args.append(item.name)
+                                        else:
+                                            raise TypeError(f"Function parameters must be strings. Now is {type(item)}")
+                                elif isinstance(arg_part, str):
+                                    func_args = [arg_part]
+                                elif hasattr(arg_part, 'name'):
+                                    func_args = [arg_part.name]
+                                return
+                            if len(node) >= 1 and isinstance(node[0], str):
+                                func_name = node[0]
+                                if len(node) > 1:
+                                    arg_part = node[1]
+                                    if isinstance(arg_part, list):
+                                        for item in arg_part:
+                                            if isinstance(item, str):
+                                                func_args.append(item)
+                                            elif hasattr(item, 'name'):
+                                                func_args.append(item.name)
+                                            else:
+                                                raise TypeError(f"Function parameters must be strings. Now is {type(item)}")
+                                    elif isinstance(arg_part, str):
+                                        func_args = [arg_part]
+                                    elif hasattr(arg_part, 'name'):
+                                        func_args = [arg_part.name]
+                                return
+                        if isinstance(node, str):
+                            func_name = node
+                            return
+                        if hasattr(node, 'name'):
+                            func_name = node.name
 
-                        if len(name_part) > 1:
-                            arg_part = name_part[1]
-                            if isinstance(arg_part, list):
-                                for item in arg_part:
-                                    if isinstance(item, str):
-                                        func_args.append(item)
-                                    elif hasattr(item, "name"):
-                                        # AST节点，提取name属性作为形参名字
-                                        func_args.append(item.name)
-                                    else:
-                                        raise TypeError(f"Function parameters must be strings. Now is {type(item)}")
-                            elif isinstance(arg_part, str):
-                                func_args = [arg_part]
-                            elif hasattr(arg_part, "name"):
-                                func_args = [arg_part.name]
-                    elif isinstance(name_part, str):
-                        func_name = name_part
-                    elif hasattr(name_part, "name"):
-                        func_name = name_part.name
+                    _extract_func_header(name_part)
 
                     body_block = interpret(body, the_first_time_running=False)
                     if func_name:
@@ -848,6 +930,12 @@ def interpret(tokens: list, the_first_time_running: True):
 
                     cb.code_lines.append(KeywordCodeLine('if', [cond, body_block], line))
                     return
+            return
+
+        if len(token) == 4 and token[0] == 'abstract' and token[2] == '=':
+            var_def = VariableDefinitionCodeLine(token[1], [tag(token[3])], line)
+            setattr(var_def, 'is_const', True)
+            cb.code_lines.append(var_def)
             return
 
         if len(token) == 3 and token[1] in ('+=', '-=', '*=', '/='):
@@ -897,6 +985,7 @@ def interpret(tokens: list, the_first_time_running: True):
         if isinstance(token, list) and token and isinstance(token[0], str):
             func_name = token[0]
             arg_tokens = token[1] if (len(token)>1 and isinstance(token[1],list)) else []
+            # build AST args
             ast_args = []
             for item in arg_tokens:
                 ast_args.append(tag(item))
@@ -920,4 +1009,35 @@ def interpret(tokens: list, the_first_time_running: True):
         
 
 
+
+
+
+from wcf import CACHE_FILE
+import pickle
+from wcf import function_call_cache, function_call_disk_cache
+import time
+
+start_ms = time.perf_counter()
+
+# your interpreter work
 interpret(tokenize(code_lines), True)
+
+end_ms = time.perf_counter()
+elapsed_ms = (end_ms - start_ms) * 1000
+
+from wcf import TIME_REC_ACTIVATE
+if TIME_REC_ACTIVATE: print(f"Program running time: {elapsed_ms:.2f} ms")
+
+# 1. clear in‑memory caches FIRST
+function_call_cache.clear()
+function_call_disk_cache.clear()
+
+# 2. write empty to disk
+try:
+    with open(CACHE_FILE, 'wb') as _cf:
+        pickle.dump({}, _cf)
+    # print("Disk cache cleared after interpret")
+except Exception as e:
+    pass
+
+

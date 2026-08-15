@@ -4,19 +4,56 @@
 true = 1
 false = 0
 
+# Program settings
+_wcore_wdbg_status = false
+_wcore_rt_on = false
+
 abstract func set_wdbg(on_or_off):
     # @brief Set whether the Wanted debugger is on or off
     # @param on_or_off: literally
-    ...
+    if on_or_off:
+        _wcore_wdbg_status = true
+    else:
+        _wcore_wdbg_status = false
+    _wcore_wdbg(_wcore_wdbg_status)
 
-abstract func not(condition: BooleanType)* -> BooleanType: 
+
+abstract func set_rt(on_or_off):
+    # @brief Set whether the Wanted runtime recorder is on or off.
+    # @param on_or_off: literally
+    if on_or_off:
+        _wcore_rt_on = true
+    else:
+        _wcore_rt_on = false
+    _wcore_rt(_wcore_rt_on)
+
+abstract func not(condition: BooleanType) -> BooleanType: 
     # @brief Returns false if the condition is true, else false.
     # @param condition: (wcf.NumberType) The condition to be operated.
     # @return wcf.NumberType(BooleanType): The opposite boolean.
     ...
 
+abstract func _wcore_stdout(subcontent):
+    # @brief Using getwcore stdout.
+    
+    # @param subcontent: (any) The param of stdout.
+    ...
+
+abstract func _wcore_wdbg(subcontent):
+    # @brief Using getwcore wdbg.
+    
+    # @param subcontent: (any) The param of wdbg setmode.
+    ...
+
+abstract func _wcore_rt(subcontent):
+    # @brief Using getwcore rt.
+    
+    # @param subcontent: (any) The param of wdbg setmode.
+    ...
+
 abstract func out(cont: StringType) -> StringType:
     # @brief Outputs without seperating with endline or whitespace.
+    
     # @param cont: (wcf.StringType) Something to be output.
     # @return wcf.StringType: aka. cont.
     ...
@@ -28,11 +65,26 @@ abstract func outs(cont: StringType, sep: StringType) -> StringType:
     # @return wcf.StringType: Just returns cont.
     ...
 
-abstract func outln(cont) -> StringType:
+abstract func outln(cont: StringType) -> StringType:
     # @brief Outputs content seperated with a new line.
     # @param cont: (wcf.StringType) Something to be output.
     # @return wcf.StringType: aka. cont.
     ...
 
+
+# Type converts 
+abstract func num(sth: any) -> NumberType:
+    # @brief Convert sth into NumberType.
+    # @param sth: Something to be converted.
+    # @return wcf.NumberType: Converted number value.
+    ...
+
+abstract func int(sth: any) -> NumberType:
+    # @brief Convert sth into an integer. See more in math.wcn.(Warning: String converts will lose precision)
+    # @param sth: Something to be converted.
+    # @return wcf.NumberType: The integer part of the decimal or converted string.
+    ...
+
+
 # It turns off debugger automatically, and you can turn on by calling the function.
-set_wdbg(false)
+set_wdbg(_wcore_wdbg_status)

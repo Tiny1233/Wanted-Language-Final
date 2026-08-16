@@ -655,7 +655,7 @@ class FunctionCall(CodeLine):
         val = target_var.value
         if not isinstance(val, tuple):
             raise RuntimeError(f"Function store expects tuple, got {type(val)}")
-        body_block, arg_names = val
+        is_stored, body_block, arg_names = val
 
         print_debug(f"[FC_GET] arg_names={arg_names}, types={[type(x) for x in arg_names]}")
         # normalize parameter names: accept strings or Type/Variable with .name
@@ -815,11 +815,17 @@ def _is_user_defined_function_name(func_name, local_vars=None, global_vars=None)
         value = getattr(variable, 'value', None)
         if (
             isinstance(value, tuple)
-            and len(value) == 2
-            and isinstance(value[0], CodeBlock)
-            and isinstance(value[1], (list, tuple))
+            and len(value) == 3
+            and isinstance(value[0], bool)
+            and isinstance(value[1], CodeBlock)
+            and isinstance(value[2], (list, tuple))
         ):
-            return True
+            is_stored_func = value[0]
+            if is_stored_func:
+                print('function ', func_name, ' is actually cachable!!!')
+                return True
+            else:
+                return False
     return False
 
 
@@ -949,7 +955,7 @@ class BinaryOperator:
 
         a_val = a.get(local_vars, global_vars) if isinstance(a, (StringType, NumberType, ListType)) else a
         b_val = b.get(local_vars, global_vars) if isinstance(b, (StringType, NumberType, ListType)) else b
-
+        from lib.wcore.dec import add, sub, mul, div
         # arithmetic
         match self.operator:
             case '+':
@@ -961,7 +967,7 @@ class BinaryOperator:
                         b_is_num = b_val.replace('.', '', 1).lstrip('+-').isdigit()
                     except Exception:
                         b_is_num = False
-                    return NumberType(a_val + float(b_val)) if b_is_num else StringType(str(a_val) + str(b_val))
+                    return NumberType(add(a_val, float(b_val))) if b_is_num else StringType(str(a_val) + str(b_val))
                 if isinstance(a, StringType) and isinstance(b, NumberType):
                     return StringType(a_val + str(b_val))
                 if isinstance(a, ListType) and isinstance(b, ListType):
@@ -972,9 +978,9 @@ class BinaryOperator:
                     return ListType(([a_val] if not isinstance(a_val, list) else a_val) + b_val)
                 if isinstance(a, StringType) or isinstance(b, StringType):
                     return StringType(str(a_val) + str(b_val))
-                return NumberType(a_val + b_val)
+                return NumberType(add(a_val, b_val))
             case '-':
-                return NumberType(a_val - b_val)
+                return NumberType(sub(a_val,  b_val))
             case '*':
                 if isinstance(a, StringType) and isinstance(b, NumberType):
                     return StringType(a_val * int(b_val))
@@ -984,13 +990,13 @@ class BinaryOperator:
                     return ListType(a_val * int(b_val))
                 if isinstance(b, ListType) and isinstance(a, NumberType):
                     return ListType(b_val * int(a_val))
-                return NumberType(a_val * b_val)
+                return NumberType(mul(a_val, b_val))
             case '^':
                 return NumberType(a_val ** b_val)
             case '/':
                 if isinstance(b_val, (int, float)) and float(b_val) == 0:
                     return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)
-                return NumberType(a_val / b_val)
+                return NumberType(div(a_val, b_val))
             case '//':
                 if isinstance(b_val, (int, float)) and float(b_val) == 0:
                     return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)

@@ -1,4 +1,4 @@
 ext @builtin.wcn 
 ext @math.wcn
 
-out(nmap(3, 0, 10, 100, 150))
+outln(0.1 + 0.2)

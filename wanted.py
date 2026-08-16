@@ -93,7 +93,7 @@ def lex(line: str) -> list:
             closer = ']' if opener == '[' else '}'
             elems = []
             if peek() != closer:
-                while True:
+                while peek() != closer:
                     elems.append(parse_compare())
                     if peek() == ',':
                         consume(',')
@@ -121,7 +121,7 @@ def lex(line: str) -> list:
                 consume('(')
                 args = []
                 if peek() != ')':
-                    while True:
+                    while peek() != ')':
                         args.append(parse_compare())
                         if peek() == ',':
                             consume(',')
@@ -857,28 +857,31 @@ def interpret(tokens: list, the_first_time_running: True):
                     print_debug(f"[FUNC_HEADER_RAW] name_part = {name_part}")
 
                     def _extract_func_header(node):
-                        nonlocal func_name, func_args
+                        is_stored = False
                         if isinstance(node, list):
                             if len(node) >= 2 and node[0] == 'stored':
-                                return _extract_func_header(node[1])
+                                is_stored = True
+                                # 递归解析真实header
+                                sub_stored, real_name, real_args = _extract_func_header(node[1])
+                                # 子层不会再有stored，直接返回，带上本层is_stored=True
+                                return (True, real_name, real_args)
+
                             if len(node) >= 2 and isinstance(node[0], str) and isinstance(node[1], list):
                                 func_name = node[0]
                                 arg_part = node[1]
-                                if isinstance(arg_part, list):
-                                    for item in arg_part:
-                                        if isinstance(item, str):
-                                            func_args.append(item)
-                                        elif hasattr(item, 'name'):
-                                            func_args.append(item.name)
-                                        else:
-                                            raise TypeError(f"Function parameters must be strings. Now is {type(item)}")
-                                elif isinstance(arg_part, str):
-                                    func_args = [arg_part]
-                                elif hasattr(arg_part, 'name'):
-                                    func_args = [arg_part.name]
-                                return
+                                func_args = []
+                                for item in arg_part:
+                                    if isinstance(item, str):
+                                        func_args.append(item)
+                                    elif hasattr(item, 'name'):
+                                        func_args.append(item.name)
+                                    else:
+                                        raise TypeError(f"Function parameters must be strings. Now is {type(item)}")
+                                return (is_stored, func_name, func_args)
+
                             if len(node) >= 1 and isinstance(node[0], str):
                                 func_name = node[0]
+                                func_args = []
                                 if len(node) > 1:
                                     arg_part = node[1]
                                     if isinstance(arg_part, list):
@@ -893,19 +896,21 @@ def interpret(tokens: list, the_first_time_running: True):
                                         func_args = [arg_part]
                                     elif hasattr(arg_part, 'name'):
                                         func_args = [arg_part.name]
-                                return
-                        if isinstance(node, str):
-                            func_name = node
-                            return
-                        if hasattr(node, 'name'):
-                            func_name = node.name
+                                return (is_stored, func_name, func_args)
 
-                    _extract_func_header(name_part)
+                        if isinstance(node, str):
+                            return (is_stored, node, [])
+                        if hasattr(node, 'name'):
+                            return (is_stored, node.name, [])
+
+                        return (is_stored, "", [])
+
+                    is_stored_func, func_name, func_args = _extract_func_header(name_part)
 
                     body_block = interpret(body, the_first_time_running=False)
                     if func_name:
                         print_debug(f"[FUNC_DEF_STORE] func={func_name}, args={func_args}")
-                        var_list.append(VariableSpace(func_name, (body_block, func_args)))
+                        var_list.append(VariableSpace(func_name, (is_stored_func, body_block, func_args)))
                     return
 
                 # if / eif (else-if) / else blocks

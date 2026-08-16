@@ -32,8 +32,22 @@ func abs(val):
     else:
         return -cval
 
+func mod(a, b):
+    if b == 0:
+        # TODO: ERROR
+        return
+    # a % b
+    dres = floor(a / b)
+    r = a - dres * b
+    # prevent precision error
+    if r < 0:
+        if abs(r) > b:
+            r += b
+    return r
+
 # Interval calcs
 func nmap(val, left, right, to_left, to_right):
     # (b-a)/(x-a)*(d-c)+c
     return ((val - left) / (right - left) * (to_right - to_left) + to_left)
+
 

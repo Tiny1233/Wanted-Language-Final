@@ -42,6 +42,13 @@ abstract func abs(val: NumberType) -> NumberType:
     # @param val: (wcf.NumberType) A number.
     # @return wcf.NumberType: The absolute value.
     ...
+    
+abstract func mod(a: NumberType, b: NumberType) -> NumberType:
+    # @brief Compute the modulo (remainder) of a divided by b.
+    # @param a: (wcf.NumberType) Dividend value.
+    # @param b: (wcf.NumberType) Modulus divisor, must not be zero.
+    # @return wcf.NumberType: Remainder after division.
+    ...
 
 # Interval calcs
 abstract func nmap(val, left, right, to_left, to_right):
@@ -53,3 +60,4 @@ abstract func nmap(val, left, right, to_left, to_right):
     # @param to_right: (wcf.NumberType) The right side of the new interval.
     # @return wcf.NumberType: The result
     return (((val - left) / (right - left)) * (to_right - to_left) + to_left)
+

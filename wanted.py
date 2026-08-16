@@ -142,9 +142,16 @@ def lex(line: str) -> list:
             parts.append(right)
         # fold to right-associative nested binary operations: a*b/c -> [a, '*', [b, '/', c]]
         def fold_ops(p):
+            # a op1 b op2 c op3 d → (((a op1 b) op2 c) op3 d)
+
             if len(p) == 1:
                 return p[0]
-            return [p[0], p[1], fold_ops(p[2:])]
+            res = [p[0], p[1], p[2]]
+            pos = 3
+            while pos < len(p):
+                res = [res, p[pos], p[pos+1]]
+                pos +=2
+            return res
 
         return fold_ops(parts)
 
@@ -642,11 +649,11 @@ def interpret(tokens: list, the_first_time_running: True):
             self.base = base
             self.index = index
 
-        def get(self):
+        def get(self, local_vars, global_vars):
             def resolve_value(value):
                 # unwrap any nested wrapper objects to get the underlying value
                 while hasattr(value, 'get') and not isinstance(value, (NumberType, StringType, ListType)):
-                    value = value.get()
+                    value = value.get(local_vars, global_vars)
                 if hasattr(value, 'value') and not isinstance(value, (NumberType, StringType, ListType)):
                     value = value.value
                 return value

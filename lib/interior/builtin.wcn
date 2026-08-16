@@ -71,6 +71,13 @@ func is_stringType(what):
 func is_numberType(what):
     return (what == (0 + what))
 
+# Other:
+func cif(cond, res_if_true, res_if_false):
+    if cond:
+        return res_if_true
+    else:
+        return res_if_false
+
 
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

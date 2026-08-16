@@ -36,3 +36,20 @@ abstract func round(origin: NumberType) -> NumberType:
     # @param origin: (wcf.NumberType) A float number.
     # @return wcf.NumberType: The processed integer (round value).
     ...
+
+abstract func abs(val: NumberType) -> NumberType:
+    # @brief Returns the absolute value of a number.
+    # @param val: (wcf.NumberType) A number.
+    # @return wcf.NumberType: The absolute value.
+    ...
+
+# Interval calcs
+abstract func nmap(val, left, right, to_left, to_right):
+    # @brief Map a value from an interval to another.
+    # @param val: (wcf.NumberType) The number.
+    # @param left: (wcf.NumberType) The left side of the origin interval.
+    # @param right: (wcf.NumberType) The right side of the origin interval.
+    # @param to_left: (wcf.NumberType) The left side of the new interval.
+    # @param to_right: (wcf.NumberType) The right side of the new interval.
+    # @return wcf.NumberType: The result
+    return (((val - left) / (right - left)) * (to_right - to_left) + to_left)

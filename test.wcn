@@ -1,3 +1,4 @@
-ext @builtin.wcn
+ext @builtin.wcn 
+ext @math.wcn
 
-out(is_numberType('54'))
+out(nmap(3, 0, 10, 100, 150))

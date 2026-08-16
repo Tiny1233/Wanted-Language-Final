@@ -24,3 +24,16 @@ func ceiling(origin):
 
 func round(origin):
     return floor((0 + origin) + 1 / 2)
+
+func abs(val):
+    cval = 0 + val
+    if cval > 0:
+        return cval
+    else:
+        return -cval
+
+# Interval calcs
+func nmap(val, left, right, to_left, to_right):
+    # (b-a)/(x-a)*(d-c)+c
+    return ((val - left) / (right - left) * (to_right - to_left) + to_left)
+

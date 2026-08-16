@@ -105,6 +105,18 @@ abstract func is_numberType(what):
     # @return wcf.NumberType: Result.
     return (what == (0 + what))
 
+# Other:
+abstract func cif(cond: BooleanType, res_if_true: any, res_if_false: any) -> any:
+    # @brief Conditional operator packed in function.
+    # @param cond: The condition.
+    # @param res_if_true: What to be returned if cond is true.
+    # @param res_if_false: Literally.
+    # @return any: Either res_if_true or res_if_false
+    if cond:
+        return res_if_true
+    else:
+        return res_if_false
+
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

@@ -1,4 +1,3 @@
 ext @builtin.wcn
-ext @math.wcn
 
-outln(round(input('Enter to round: ')))
+out(is_numberType('54'))

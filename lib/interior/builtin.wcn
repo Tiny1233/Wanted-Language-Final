@@ -64,6 +64,13 @@ func int(sth):
 
     return (0 + sth) // 1 # 0 + sth returns number and use // 1 to convert
 
+# Type identify
+func is_stringType(what):
+    return (what == ('' + what))
+
+func is_numberType(what):
+    return (what == (0 + what))
+
 
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

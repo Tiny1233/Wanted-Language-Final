@@ -92,6 +92,18 @@ abstract func int(sth: any) -> NumberType:
     # @return wcf.NumberType: The integer part of the decimal or converted string.
     ...
 
+# Type identify
+abstract func is_stringType(what):
+    # @brief Judge whether the value is wcf.StringType
+    # @param what: The value to be judged.
+    # @return wcf.NumberType: Result.
+    return (what == ('' + what))
+
+abstract func is_numberType(what):
+    # @brief Judge whether the value is wcf.NumberType
+    # @param what: The value to be judged.
+    # @return wcf.NumberType: Result.
+    return (what == (0 + what))
 
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)

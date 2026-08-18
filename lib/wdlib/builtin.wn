@@ -117,6 +117,26 @@ abstract func cif(cond: BooleanType, res_if_true: any, res_if_false: any) -> any
     else:
         return res_if_false
 
+abstract func len(sth):
+    # @brief Returns the length of sth. For number, it returns the digits of the integer part in decimal.
+    # @param sth: The string, list, or number.
+    # @return wcf.NumberType: The length.
+    ...
+
+abstract func find_first_elem(target, in_which):
+    # @brief Returns the index which target first appears. Target is a character in string or an element in lists.
+    # @param target: Something to be searched. It is a character in string, or an element in lists.
+    # @param in_which: The base which is considered to contain the target.
+    # @return wcf.NumberType: The index if found, else -1.
+    length = len(in_which)
+    ind = -1
+    rep length:
+        ind += 1
+        if target == in_which[ind]:
+            return ind
+    
+    return -1
+
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

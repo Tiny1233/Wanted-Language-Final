@@ -1,6 +1,6 @@
 # String operation
-
-func string(num):
+ext @builtin.wcn
+func str(num):
     return ('' + num)
 
 func repstr(times, str):
@@ -9,3 +9,31 @@ func repstr(times, str):
 
     return false
 
+func find_substr(target, in_which):
+    # returns the position if found else -1
+    
+    ltar = len(target)
+    liw = len(in_which)
+    
+    if ltar > liw:
+        return -1
+
+    ind = -1
+
+    rep (liw-ltar+1):
+        ind += 1
+        jnd = -1
+        flag = false
+        rep ltar:
+            jnd += 1
+            iw = ind + jnd
+            if (in_which[iw]) != (target[jnd]):
+                flag = true
+                break   
+            if (jnd + 1) == ltar:
+                if not(flag):
+                    return ind
+    return -1
+
+func contains(base, target):
+    return (find_substr(target, base) != -1)

@@ -16,6 +16,7 @@ import atexit
 import lib.wcore.dec
 from lib.dbg import print_debug as print_debug, set_debug_mode as set_debug_mode
 
+
 false = False
 true = True
 
@@ -86,7 +87,11 @@ class KeywordCodeLine(CodeLine):
                 subcommand: Type = self.arg[0]
                 subcontent: Type = self.arg[1]
                 from lib.wcore.wsfilter import wsfilter
-                match subcommand.get():
+     
+                
+                print_debug(f"[GETWCORE DEBUG] cmd repr={repr(subcommand.get(local_vars, global_vars))}")
+  
+                match subcommand.get(local_vars, global_vars):
                     case 'stdout':
                         result = subcontent.get(local_vars, global_vars)
                         if isinstance(result, (StringType, NumberType)):
@@ -118,6 +123,27 @@ class KeywordCodeLine(CodeLine):
                         return NumberType(TIME_REC_ACTIVATE)
 
 
+                    case 'lengthOf':
+                        # 反复求值直到不再有 .get()
+                        val = subcontent
+                        while hasattr(val, "get"):
+                            val = val.get(local_vars, global_vars)
+
+                        # duck‑type，规避isinstance跨模块类身份问题
+                        if isinstance(val, list):
+                            length = len(val)
+                        elif isinstance(val, str):
+                            length = len(val)
+                        else:
+                            import math
+                            num = float(val)
+                            if num == 0:
+                                length = 1
+                            else:
+                                length = math.ceil(math.log10(abs(num)))
+                        return NumberType(length)
+
+
 
                     
                     case 'stdin':
@@ -142,6 +168,7 @@ class KeywordCodeLine(CodeLine):
                 if not isinstance(repbody, CodeBlock):
                     Error('InitialDebugError', 'WCB was expected.')
                 # Runtime error
+                import math
                 if math.isinf(reptime.get(local_vars, global_vars)) or abs(int(reptime.get(local_vars, global_vars))) if math.isinf(reptime.get(local_vars, global_vars)) else 16777217 > 16777216:
                     Error('PerformanceError', 'Repeation times out of expectation, maximum 16777216.')
                 broken = False
@@ -968,7 +995,7 @@ class BinaryOperator:
                     except Exception:
                         b_is_num = False
                     return NumberType(add(a_val, float(b_val))) if b_is_num else StringType(str(a_val) + str(b_val))
-                if isinstance(a, StringType) and isinstance(b, NumberType):
+                if isinstance(a, StringType) and isinstance(b, (NumberType, ListType)):
                     return StringType(a_val + str(b_val))
                 if isinstance(a, ListType) and isinstance(b, ListType):
                     return ListType(a_val + b_val)
@@ -1034,7 +1061,7 @@ class BinaryOperator:
     def __repr__(self):
         return '<BinaryOperator {}>'.format(self.operator)
       
-
+base_type = (ListType, NumberType, StringType)
 if __name__ == '__main__':
     # codeblock = CodeBlock(
     #     [

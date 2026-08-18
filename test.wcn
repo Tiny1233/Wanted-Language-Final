@@ -1,4 +1,16 @@
-ext @builtin.wcn 
+ext @builtin.wcn
 ext @math.wcn
 
-outln(0.1 + 0.2)
+func sqrt(base):
+    a = 0
+    b = 0 + base
+    
+    rep 100:
+        half = (a + b) / 2
+        if (half * half) > (0 + base):
+            b = half
+        else:
+            a = half
+    return half
+
+out(sqrt(num(input(''))))

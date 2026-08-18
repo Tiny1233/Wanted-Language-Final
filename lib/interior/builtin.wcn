@@ -42,13 +42,15 @@ func out(cont):
     _wcore_stdout(cont)
 
 func outs(cont, sep):
+
+    pcont = '' + cont
     if sep:
-        out(cont + sep)
+        out(pcont + sep)
     else:
-        out(cont + '\n')
+        out(pcont + '\n')
 
 func outln(cont):
-    getwcore 'stdout' cont + '\n'
+    outs(cont, false)
 
 func input(prompt):
     res = (getwcore 'stdin' prompt)
@@ -77,6 +79,21 @@ func cif(cond, res_if_true, res_if_false):
         return res_if_true
     else:
         return res_if_false
+
+func len(sth):
+    return (getwcore 'lengthOf' sth)
+
+func find_first_elem(target, in_which):
+    length = len(in_which)
+    ind = -1
+    rep length:
+        ind += 1
+        if target == in_which[ind]:
+            return ind
+    
+    return -1
+
+
 
 
 set_wdbg(_wcore_wdbg_status)

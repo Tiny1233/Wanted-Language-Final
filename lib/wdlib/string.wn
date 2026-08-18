@@ -13,3 +13,17 @@ abstract func repstr(times: NumberType, _str: StringType):
     # @return wcf.StringType
     ...
 
+abstract func find_substr(target: StringType, in_which: StringType):
+    # @brief Find the target in a base.
+    # @param target: (wcf.StringType) The target to be found.
+    # @param in_which: (wcf.StringType) The base.
+    # @return wcf.NumberType: If found, returns the index where the FIRST char of target is found. Else -1.
+    ...
+
+abstract func contains(base, target):
+    # @brief To judge whether the base contains the target.
+    # @param base: (wcf.StringType) The base.
+    # @param target: (wcf.StringType) The target to be found.
+    # @return wcf.NumberType: Whether it is found or not.
+    return (find_substr(target, base) != -1)
+

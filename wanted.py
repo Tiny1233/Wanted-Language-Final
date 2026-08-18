@@ -165,9 +165,16 @@ def lex(line: str) -> list:
             parts.append(right)
         # fold to right-associative nested binary operations: a+b-c -> [a, '+', [b, '-', c]]
         def fold_ops(p):
+            # a op1 b op2 c op3 d → (((a op1 b) op2 c) op3 d)
+        
             if len(p) == 1:
                 return p[0]
-            return [p[0], p[1], fold_ops(p[2:])]
+            res = [p[0], p[1], p[2]]
+            pos = 3
+            while pos < len(p):
+                res = [res, p[pos], p[pos+1]]
+                pos +=2
+            return res
 
         return fold_ops(parts)
 

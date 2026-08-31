@@ -33,6 +33,7 @@ class Error:
         self.line = line
         self.content = content
         self.filename = filename
+        self.emit()
 
     def emit(self):
         RED = '\033[31m'
@@ -98,7 +99,7 @@ class KeywordCodeLine(CodeLine):
                             print(wsfilter(result.get(local_vars, global_vars)), end='')
                         elif isinstance(result, ListType):
                             print(', '.join([str(wsfilter(i.get(local_vars, global_vars))) for i in result.get(local_vars, global_vars)]), end='')
-                        return result
+                        return None
                     case 'wdbg':
                         # activate debugmode?
                         val = subcontent.get(local_vars, global_vars)
@@ -143,12 +144,14 @@ class KeywordCodeLine(CodeLine):
                                 length = math.ceil(math.log10(abs(num)))
                         return NumberType(length)
 
-
+                    case 'rand':
+                        import random
+                        return NumberType(random.random())
 
                     
                     case 'stdin':
                         prompt = subcontent.get(local_vars, global_vars)
-                        print(prompt)
+                        #print(prompt)
                         
                         if isinstance(prompt, (StringType, NumberType)):
                             prompt = prompt.get(local_vars, global_vars)
@@ -159,25 +162,35 @@ class KeywordCodeLine(CodeLine):
                     Error('SyntaxError', f'Repeat body and times were expected, but {len(self.arg)} {'was' if len(self.arg) < 2 else 'were'} given.', self.line).emit()
                 final_block = self.arg[2] if len(self.arg) == 3 else None
                 reptime = self.arg[0]
-                while not isinstance(reptime, (StringType, NumberType)):
+                while not isinstance(reptime, (NumberType, StringType, ListType)):
                     reptime = reptime.get(local_vars, global_vars)
+                    if isinstance(reptime, int):
+                        reptime = NumberType(reptime)
                 repbody = self.arg[1]
 
                 if not isinstance(reptime, NumberType):
-                    Error('SyntaxError', 'The condition was expected to be a real number.', self.line)
+                    Error('SyntaxError', 'The reptime was expected to be a real number. Not ' + str(type(reptime)), self.line)
                 if not isinstance(repbody, CodeBlock):
                     Error('InitialDebugError', 'WCB was expected.')
                 # Runtime error
                 import math
-                if math.isinf(reptime.get(local_vars, global_vars)) or abs(int(reptime.get(local_vars, global_vars))) if math.isinf(reptime.get(local_vars, global_vars)) else 16777217 > 16777216:
-                    Error('PerformanceError', 'Repeation times out of expectation, maximum 16777216.')
+                # if math.isinf(reptime.get(local_vars, global_vars)) or abs(int(reptime.get(local_vars, global_vars))) if math.isinf(reptime.get(local_vars, global_vars)) else 16777217 > 16777216:
+                #     Error('PerformanceError', 'Repeation times out of expectation, maximum 16777216.')
                 broken = False
-                for ct in range(abs(int(reptime.get(local_vars, global_vars)))):
-                    try:
-                        repbody.run(local_vars=local_vars, global_vars=global_vars)
-                    except BreakLoop:
-                        broken = True
-                        break
+                if not math.isinf(reptime.get(local_vars, global_vars)):
+                    for ct in range(abs(int(reptime.get(local_vars, global_vars)))):
+                        try:
+                            repbody.run(local_vars=local_vars, global_vars=global_vars)
+                        except BreakLoop:
+                            broken = True
+                            break
+                else:
+                    while 1:
+                        try:
+                            repbody.run(local_vars=local_vars, global_vars=global_vars)
+                        except BreakLoop:
+                            broken = True
+                            break
                 if final_block is not None and not broken:
                     final_block.run(local_vars=local_vars, global_vars=global_vars)
                 
@@ -358,7 +371,7 @@ class KeywordCodeLine(CodeLine):
                 if len(self.arg) != 1:
                     Error('SyntaxError', 'Return expected zero or one expression.', self.line).emit()
                 val = self.arg[0]
-                while not isinstance(val, (StringType, NumberType, ListType)):
+                while not isinstance(val, (LiteralType)):
                     val = val.get(local_vars, global_vars)
                 raise ReturnException(val)
 
@@ -424,7 +437,7 @@ class KeywordCodeLine(CodeLine):
                         for pname, aval in zip(self.params, args):
                             # ensure aval is a Type
                             v = aval
-                            while not isinstance(v, (StringType, NumberType, ListType)):
+                            while not isinstance(v, (LiteralType)):
                                 v = v.get(local_vars, global_vars)
                             var = VariableSpace(pname, v)
                             var_list.append(var)
@@ -498,8 +511,29 @@ class Type:
     def __ne__(self, other):
         return not self.__eq__(other)
     
+class LiteralType(Type):
+    def __init__(self, value: any, name: str = '', line: int = 0):
+        self.name = name
+        self.value = value
+        self.line = line
 
-class StringType(Type):
+    def get(self, local_vars:list, global_vars:list):
+        return NotImplemented
+
+    def __repr__(self):
+        return '<Type {}>'.format(self.name)
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __eq__(self, other):
+        if isinstance(other, Type):
+            return self.get(local_vars=None, global_vars=None) == other.get(local_vars=None, global_vars=None)
+        return self.get(local_vars=None, global_vars=None) == other
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+class StringType(LiteralType):
     def __init__(self, value: str, name: str = '', line: int = 0):
         """
         @brief Represents a string type in the Wanted language.
@@ -521,11 +555,50 @@ class StringType(Type):
             ind = ind.get(local_vars=None, global_vars=None)
         return StringType(self.get(local_vars=None, global_vars=None)[ind.get(local_vars=None, global_vars=None)])
     
+class IndexAssignCodeLine(CodeLine):
+    def __init__(self, base_node, idx_node, val_node, line=0):
+        super().__init__("index_assign", line)
+        self.base_node = base_node
+        self.idx_node = idx_node
+        self.val_node = val_node
+
+    def get(self, local_vars, global_vars):
+        base_obj = self.base_node
+        while not isinstance(base_obj, LiteralType):
+            base_obj = self.base_node.get(local_vars, global_vars)
+        idx_raw = self.idx_node.get(local_vars, global_vars)
+        new_val = self.val_node.get(local_vars, global_vars)
+
+        # 下标转整数
+        if hasattr(idx_raw, "get"):
+            idx = int(idx_raw.get(local_vars, global_vars))
+        else:
+            idx = int(idx_raw)
+        if isinstance(base_obj, list):
+            base_obj = ListType(base_obj)
+        # 禁止字符串赋值
+        if isinstance(base_obj, StringType):
+            raise RuntimeError("String does not support item assignment")
+        if not isinstance(base_obj, ListType):
+            raise RuntimeError("Only list support index-assign, current is " + str(type(base_obj)))
+
+        items = base_obj.value
+        if idx < 0 or idx >= len(items):
+            raise IndexError(f"list index {idx} out of range")
+
+        # 原地修改列表，@引用参数外部直接生效
+        items[idx] = new_val
+        return None
+
     
 
-class NumberType(Type):
+class NumberType(LiteralType):
     def __init__(self, value: float | int, name: str = '', line: int = 0):
+        if not isinstance(value, (float, int)):
+            Error('WCFError', 'Interpreter detected type ' + str(type(value)) + ' while loading NumberType. If you cannot seek the reason, please report on github.') 
+        self.value = value
         super().__init__(value, name, line)
+        
 
     def get(self, local_vars=None, global_vars=None):
         return self.value
@@ -536,13 +609,20 @@ class NumberType(Type):
     # Numeric/string/list operator implementations moved to BinaryOperator
 
 
-class ListType(Type):
-    def __init__(self, value: list, name: str = '', line: int = 0):
+class ListType(LiteralType):
+    def __init__(self, value: list, name: str = '', line: int = 0, local_vars=None, global_vars=None):
         super().__init__(value, name, line)
-        # normalize elements to Type instances
+    
+        self.name = name
+        self.value = value
+        self.local_vars = local_vars
+        self.global_vars = global_vars
+
+    def refresh(self):
+        #print('REFRESH')
         normalized = []
-        for v in (value or []):
-            if isinstance(v, (StringType, NumberType, ListType)):
+        for v in (self.value):
+            if isinstance(v, (LiteralType)):
                 normalized.append(v)
             elif isinstance(v, list):
                 normalized.append(ListType(v))
@@ -551,11 +631,21 @@ class ListType(Type):
             elif isinstance(v, str):
                 normalized.append(StringType(v))
             else:
+                while hasattr(v, 'get'):
+                    # if (v.get(self.local_vars, self.global_vars)) is None:
+                    #     raise RuntimeError('Nonetype detected from value ' + v.name + f' ({str(type(v))})')
+                    #print(self.name, ' has varlists: ', self.local_vars, self.global_vars)
+                    v = v.get(self.local_vars, self.global_vars)
                 normalized.append(v)
+        
         self.value = normalized
+        #print('value is', self.value)
+
 
     def get(self, local_vars=None, global_vars=None):
         return self.value
+        
+        
 
     def __add__(self, other):
         # kept minimal: behavior moved to BinaryOperator
@@ -572,13 +662,18 @@ class ListType(Type):
 
         return self.get(local_vars=None, global_vars=None)[ind.get(local_vars=None, global_vars=None)]
 class VariableSpace: # Won't be declared in Wanted Codes
-    def __init__(self, var_name: str, value: Type, is_const: bool = False):
+    def __init__(self, var_name: str, value: Type, is_const: bool = False, reference: str = ''):
         self.name = var_name
         self.value = value
         self.is_const = is_const
+        self.reference = reference
 
     def get(self, local_vars=None, global_vars=None):
         return self.value
+
+    def __repr__(self):
+        return f'<VS {self.name}{' (Const)' if self.is_const else ''}{f' -> {self.reference}' if self.reference else ''}>'
+
 
 class VariableDefinitionCodeLine(CodeLine):
     def __init__(self, var_name: str, arg: list[Type], line: int = 0, is_const: bool = False):
@@ -588,7 +683,8 @@ class VariableDefinitionCodeLine(CodeLine):
         self.line = line
         self.is_const = is_const
 
-    def get(self, local_vars: list | None = None, global_vars: list | None = None):
+    def get(self, local_vars: list | None = None, global_vars: list | None = None, force_global = False):
+        #print(self.name+'\'s definition base list: ', local_vars, global_vars)
         if local_vars is None:
             local_vars = []
         if global_vars is None:
@@ -596,42 +692,90 @@ class VariableDefinitionCodeLine(CodeLine):
 
         flag = True
         t = self.arg[0]
+        target_list = local_vars if local_vars else global_vars
         # 这里！不要 t.get()，要把上下文传下去
-        while not isinstance(t, (NumberType, StringType)):
-            print_debug(F'[TYPE OF T:{self.var_name}] ', type(t))
+
+        while not isinstance(t, LiteralType):
+            #printtype(t))
+          
+            if isinstance(t, Variable) and self.name.startswith('@'):
+                cname = self.name[1:]
+                ref = t.name
+                # print(cname, ref)
+                try:
+                    #printt)
+                    t.local_vars = local_vars
+                    t.global_vars = global_vars
+                    t.refresh()
+                  
+                    target_list.append(VariableSpace(cname, t.get(local_vars, global_vars), self.is_const))
+     
+            
+                except Exception as e:
+              
+            
+                    target_list.append(VariableSpace(cname, t.get(local_vars, global_vars), self.is_const))
+
+                return 0
+
+            # print_debug(F'[TYPE OF T:{self.var_name}] ', type(t))
+            
             t = t.get(local_vars, global_vars)
+    
 
         # 顶层脚本赋值写 global_vars；函数内部赋值写 local_vars
-        target_list = local_vars if local_vars else global_vars
+        target_list = (local_vars if local_vars else global_vars) if not force_global else global_vars
 
         for var in target_list:
             if var.name == self.name:
                 if var.is_const:
                     Error('TypeError', f'Cannot reassign to readonly variable {self.name}.', self.line).emit()
+                # 传入变量表给需要内部解析的类型
+                try:
+                    t.global_vars = global_vars
+                    t.local_vars = local_vars
+                    t.refresh()
+                except:pass
                 var.value = t
+                if var.reference:
+                    for a in global_vars + local_vars:
+                      
+                        if a.name == var.reference:
+                            if isinstance(a, VariableSpace): VariableDefinitionCodeLine(a.name, [t], self.line, is_const=var.is_const).get(local_vars, global_vars, force_global = True)
                 flag = False
                 break
         if flag:
-            target_list.append(VariableSpace(self.name, t, self.is_const))
+            try:
+                #print(t)
+                t.local_vars = local_vars
+                t.global_vars = global_vars
+                t.refresh()
+                target_list.append(VariableSpace(self.name, t, self.is_const))
+                #print(f'The first time defined: {self.name}', type(t))
+        
+     
+            except Exception as e:
+     
+            
+                target_list.append(VariableSpace(self.name, t.get(local_vars, global_vars), self.is_const))
         return t
 
-    # 修复：__repr__禁止调用get()，只打印静态信息，不执行业务逻辑
     def __repr__(self):
         return f"<VariableDefinitionCodeLine name={self.name!r}>"
     
 class Variable(Type):
     def __init__(self, name, line:int=0):
-        super().__init__(None, name)
+        super().__init__('var', name)
         self.name = name
         self.line = line
 
-    # 不要 def get(self, local_vars:list, global_vars:list):
-# 改成带兜底，防止外部误传None（但是业务执行链路一定传真实list）
+
     def get(self, local_vars: list | None = None, global_vars: list | None = None):
         if local_vars is None:
             local_vars = []
         if global_vars is None:
             global_vars = var_list
+        #print(self.name+'\'s list: ', local_vars, global_vars)
         print_debug('[VAR CALL]Variable get() called for variable name:', self.name)
         lv = [(v.name, v.value) for v in local_vars]
         print_debug(f'[VAR CALL {self.name}] local_vars name&value: {lv}')
@@ -645,7 +789,8 @@ class Variable(Type):
             if vs.name == self.name:
                 return vs.value
             
-        raise RuntimeError(f"Undefined variable '{self.name}'")
+        Error('NameError', f"Undefined identifier '{self.name}'")
+        raise RuntimeError('Nonetype may be produced when processing the value of variable ' + self.name)
 
 
 class FunctionCall(CodeLine):
@@ -660,6 +805,7 @@ class FunctionCall(CodeLine):
         print_debug(f'Callable {fname} feedback!')
 
     def get(self, local_vars: list | None = None, global_vars: list | None = None):
+        
         if local_vars is None:
             local_vars = []
         if global_vars is None:
@@ -674,7 +820,7 @@ class FunctionCall(CodeLine):
                 target_var = v
                 break
         if target_var is None:
-            raise RuntimeError(f"Undefined function '{self.fname}'")
+            Error('NameError', f"Undefined function '{self.fname}'")
 
         print_debug(f"[FC_DUMP] raw value = {target_var.value}")
         print_debug(f"[FC_DUMP] value type = {type(target_var.value)}")
@@ -687,8 +833,16 @@ class FunctionCall(CodeLine):
         print_debug(f"[FC_GET] arg_names={arg_names}, types={[type(x) for x in arg_names]}")
         # normalize parameter names: accept strings or Type/Variable with .name
         normalized_arg_names = []
+        references = []
         for p in arg_names:
             if isinstance(p, str):
+                if p.startswith('@'):
+                    pn = p[1:]
+                    normalized_arg_names.append(pn)
+                    references.append(pn)
+                    continue
+                references.append(False)
+                
                 normalized_arg_names.append(p)
             elif hasattr(p, 'name'):
                 normalized_arg_names.append(p.name)
@@ -701,9 +855,17 @@ class FunctionCall(CodeLine):
         # 下面直接解析实参、构造局部变量表、运行body_block
         # --------------------------
 
-        def _resolve_type(value, local, global_):
-            while not isinstance(value, (StringType, NumberType, ListType)):
+        def _resolve_type(value, local, global_, idx = 0):
+            while not isinstance(value, (LiteralType)):
                 if hasattr(value, 'get'):
+                    if isinstance(value, Variable):
+                        # 处理指针
+                        if references[idx]:
+                            references[idx] = (references[idx], value.name)
+                
+
+                        return value.get(local, global_)
+                    
                     value = value.get(local, global_)
                 else:
                     break
@@ -719,9 +881,11 @@ class FunctionCall(CodeLine):
 
         # 解析实参
         eval_args = []
+        idx = 0
         for a in (self.args or []):
-            v = _resolve_type(a, local_vars, global_vars)
+            v = _resolve_type(a, local_vars, global_vars, idx)
             eval_args.append(v)
+            idx += 1
         print_debug(f"resolved args values: {eval_args}")
 
         func_name = _normalize_function_name(self.fname, local_vars, global_vars)
@@ -752,9 +916,10 @@ class FunctionCall(CodeLine):
 
         # 构造函数局部变量表
         func_local = []
-        for param_name, real_val in zip(arg_names, eval_args):
+        for param_name, real_val, ref in zip(arg_names, eval_args, references):
             pname = param_name if isinstance(param_name, str) else str(param_name)
-            func_local.append(VariableSpace(pname, real_val))
+            func_local.append(VariableSpace(pname, real_val, reference = (ref[1] if ref else '')))
+         
 
       
         print_debug(f"[FC_BIND] func={self.fname}, params={[(v.name, type(v.value)) for v in func_local]}")
@@ -768,11 +933,11 @@ class FunctionCall(CodeLine):
         except ReturnException as re:
 
             ret = re.value
-            #print('[FUNCTION RETURN VAL]', ret)
+            ##print('[FUNCTION RETURN VAL]', ret)
 
         print_debug(f'[FC {self.fname}]Run ended.')
         result = _resolve_type(ret, local_vars, global_vars)
-        #print(f'[FC_CACHE {self.fname}] READY TO STORE')
+        ##print(f'[FC_CACHE {self.fname}] READY TO STORE')
         try:
             if not is_user_defined_func:
                 return result
@@ -783,7 +948,8 @@ class FunctionCall(CodeLine):
         except Exception as e:
             print_debug(f"[FC_CACHE_STORE_ERROR]" + str(e))
 
-        #print('[Function return value]', result)
+        ##print('[Function return value]', result)
+        
         return result
 
 var_list: list[VariableSpace] = [VariableSpace('true', NumberType(1)), VariableSpace('false', NumberType(0)), VariableSpace('inf', NumberType(INF)), VariableSpace('nega_inf', NumberType(-INF))]    
@@ -849,7 +1015,7 @@ def _is_user_defined_function_name(func_name, local_vars=None, global_vars=None)
         ):
             is_stored_func = value[0]
             if is_stored_func:
-                print('function ', func_name, ' is actually cachable!!!')
+                # #print('function ', func_name, ' is actually cachable!!!')
                 return True
             else:
                 return False
@@ -973,15 +1139,19 @@ class BinaryOperator:
         b = self.b
 
         def _resolve(value):
-            while not isinstance(value, (StringType, NumberType, ListType)) and hasattr(value, 'get'):
+            while not isinstance(value, (LiteralType)) and hasattr(value, 'get'):
                 value = value.get(local_vars, global_vars)
             return value
 
         a = _resolve(a)
+        if isinstance(a, (int, float)): a = NumberType(a)
+        if isinstance(a, str): a = StringType(a)
         b = _resolve(b)
+        if isinstance(b, (int, float)): b = NumberType(b)
+        if isinstance(b, str): b = StringType(b)
 
-        a_val = a.get(local_vars, global_vars) if isinstance(a, (StringType, NumberType, ListType)) else a
-        b_val = b.get(local_vars, global_vars) if isinstance(b, (StringType, NumberType, ListType)) else b
+        a_val = a.get(local_vars, global_vars) if isinstance(a, (LiteralType)) else a
+        b_val = b.get(local_vars, global_vars) if isinstance(b, (LiteralType)) else b
         from lib.wcore.dec import add, sub, mul, div
         # arithmetic
         match self.operator:
@@ -1005,6 +1175,7 @@ class BinaryOperator:
                     return ListType(([a_val] if not isinstance(a_val, list) else a_val) + b_val)
                 if isinstance(a, StringType) or isinstance(b, StringType):
                     return StringType(str(a_val) + str(b_val))
+                #print('Never errors: ', a_val, b_val)
                 return NumberType(add(a_val, b_val))
             case '-':
                 return NumberType(sub(a_val,  b_val))

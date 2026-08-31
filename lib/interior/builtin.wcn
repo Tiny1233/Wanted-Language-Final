@@ -50,7 +50,7 @@ func outs(cont, sep):
         out(pcont + '\n')
 
 func outln(cont):
-    outs(cont, false)
+    out(('' + cont) + '\n')
 
 func input(prompt):
     res = (getwcore 'stdin' prompt)
@@ -73,19 +73,43 @@ func is_stringType(what):
 func is_numberType(what):
     return (what == (0 + what))
 
+func is_listType(what):
+    if is_stringType(what) | is_numberType(what):
+        return false
+    a = what + 1
+    return (len(a) - len(what)) == 1
+
+func is_set(what):
+    if is_numberType(what):
+        return false
+
+    res = cif(is_listType(what), {}, '')
+  
+    i = -1
+    rep len(what):
+        i += 1
+        if not(contains(res, what[i])):
+            res += what[i]
+    
+
+    return len(what) == len(res)
+
 # Other:
 func cif(cond, res_if_true, res_if_false):
     if cond:
         return res_if_true
     else:
         return res_if_false
+    
 
 func len(sth):
     return (getwcore 'lengthOf' sth)
 
 func find_first_elem(target, in_which):
     length = len(in_which)
+    
     ind = -1
+    
     rep length:
         ind += 1
         if target == in_which[ind]:
@@ -93,11 +117,79 @@ func find_first_elem(target, in_which):
     
     return -1
 
+# List operates
+func contains(base, target):
+    if is_numberType(base):
+        return false
+    i = 0
+    rep len(base):
+        if base[i] == target:
+            return true
+        i += 1
+    return false
+
+func add_item(@li, elem):
+    li += elem
+
+func add_item_after(@li, index, elem):
+    res = {}
+    i = 0
+    rep len(li):
+        res += li[i]
+        if i == index:
+            res += elem
+        i += 1
+
+    li = res
+
+func delete_last_item(@li):
+    res = {}
+    i = 0
+    rep len(li) - 1:
+        res += li[i]
+        i += 1
+    li = res
+
+func delete_item_by_index(@li, indexs):
+    dlist = indexs
+    if is_numberType(indexs):
+        dlist = {dlist}
+
+    i = 0
+    res = {}
+    rep len(li):
+        if not(contains(dlist, i)):
+            res += li[i]
+        i += 1
+    return res
+
+func reset(@sth):
+    if is_listType(sth):
+        sth = {}
+    eif is_numberType(sth):
+        sth = 0
+    eif is_stringType(sth):
+        sth = ''
+
+func reverse(@sth):
+    d = ''
+    if is_listType(sth):
+        d = {}
+    
+    i = -1
+    rep len(sth):
+        i += 1
+
+        d += sth[len(sth) - i - 1]
+    
+    sth = d
+
 
 
 
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)
+
 
 
 

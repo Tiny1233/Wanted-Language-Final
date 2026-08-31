@@ -4,18 +4,21 @@ import os
 import sys
 import wcf
 from lib.dbg import print_debug as print_debug, set_debug_mode as set_debug_mode
+
 # enable debug temporarily to trace variable binding issues
 set_debug_mode(False)
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+code_lines = []
 
 
-command = sys.argv[1]
-BASE_DIR = os.path.dirname(os.path.abspath(command))
+# command = sys.argv[1]
+# BASE_DIR = os.path.dirname(os.path.abspath(command))
 
-with open(command, 'r', encoding='utf-8') as f:
-    # remove empty/whitespace-only lines and comment-only lines to avoid spurious tokens
-    code_lines = [l for l in f.read().split('\n') if l.strip() != '' and not l.strip().startswith('#')]
+# with open(command, 'r', encoding='utf-8') as f:
+#     # remove empty/whitespace-only lines and comment-only lines to avoid spurious tokens
+#     code_lines = [l for l in f.read().split('\n') if l.strip() != '' and not l.strip().startswith('#')]
 
 def lex(line: str) -> list:
     '''
@@ -36,7 +39,7 @@ def lex(line: str) -> list:
     import re
 
     # include braces so list literals can be written with { ... }
-    TOK_RE = re.compile(r"\s*(?:(\+=|-=|\*=|/=|==|!=|>=|<=|\d+(?:\.\d+)?|//|\w+|[:=+\-*/()\[\]{},<>!&|])|('(\\'|[^'])*'))")
+    TOK_RE = re.compile(r"\s*(?:(\+=|-=|\*=|/=|==|!=|>=|<=|\d+(?:\.\d+)?|//|@?\w+|[:=+\-*/()\[\]{},<>!&|])|('(\\'|[^'])*'))")
 
     # tokenize keeping quoted strings as one token
     tokens = []
@@ -82,6 +85,8 @@ def lex(line: str) -> list:
             return node if no_index else maybe_parse_index(node)
 
         t = peek()
+        t = peek()
+        
         # unary minus support: treat leading '-' as 0 - <expr>
         if t == '-':
             consume('-')
@@ -113,7 +118,8 @@ def lex(line: str) -> list:
             return maybe_index(['getwcore', [first, second]])
         if isinstance(t, str) and re.match(r"^'", t):
             return maybe_index(consume())
-        if t and re.match(r"^\d+$", t) or (t and re.match(r"^\w+$", t)):
+        
+        if t and re.match(r"^\d+$", t) or (t and re.match(r"^@?\w+$", t)):
             # identifier or number
             name = consume()
             # function call
@@ -297,7 +303,19 @@ def lex(line: str) -> list:
             rhs_tokens = ''.join(tokens[op_i+1:])
             rhs = lex(rhs_tokens) if rhs_tokens else []
             return [left, op, rhs]
-
+    idx = 0
+    left_ast = parse_compare()
+    # 消耗完左侧后，peek 是否为 =
+    if peek() == '=':
+        consume('=')
+        # 剩下全部作为右侧
+        rhs_tokens = tokens[idx:]
+        rhs_text = ''.join(rhs_tokens)
+        rhs = lex(rhs_text) if rhs_text else []
+        # 判断左侧是不是 index 节点
+        if isinstance(left_ast, list) and left_ast[0] == "index":
+            # 输出 index_assign 语法树
+            return ["index_assign", left_ast[1], left_ast[2], rhs]
     # default: parse whole line possibly assignment
     # look for '=' at top-level
     if '=' in tokens:
@@ -362,7 +380,7 @@ def get_line_indent(line):
     return c_indent
 
 
-from wcf import BinaryOperator as BinaryOperator, CodeBlock as CodeBlock, CodeLine as CodeLine, Error as Error, INF as INF, KeywordCodeLine as KeywordCodeLine, NumberType as NumberType, Operator as Operator, StringType as StringType, TINY as TINY, Type as Type, Variable as Variable, VariableDefinitionCodeLine as VariableDefinitionCodeLine, VariableSpace as VariableSpace, ListType as ListType, lib as lib, math as math, sys as sys, var_list as var_list
+from wcf import BinaryOperator as BinaryOperator, CodeBlock as CodeBlock, CodeLine as CodeLine, Error as Error, INF as INF, KeywordCodeLine as KeywordCodeLine, NumberType as NumberType, Operator as Operator, StringType as StringType, TINY as TINY, Type as Type, Variable as Variable, VariableDefinitionCodeLine as VariableDefinitionCodeLine, VariableSpace as VariableSpace, ListType as ListType, lib as lib, math as math, sys as sys, var_list as var_list, IndexAssignCodeLine as IndexAssignCodeLine
 
 # Add ListType addition support: allow concatenation with scalars or other lists.
 def _listtype_add(self, other):
@@ -558,7 +576,7 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
                         print('{' + ', '.join(format_wcore_output(item) for item in list_items) + '}', end='')
                     else:
                         print(ws.wsfilter(str(out_val)), end='')
-                return result
+                return None
 
             case 'stdin':
                 prompt_raw = resolve_arg_value(subcontent_node, local_vars, global_vars)
@@ -635,7 +653,7 @@ def _wanted_variable_definition_get(self, local_vars: list | None = None, global
     target_list.append(VariableSpace(self.name, t))
     return resolve_arg_value(t, local_vars, global_vars)
 
-VariableDefinitionCodeLine.get = _wanted_variable_definition_get
+# VariableDefinitionCodeLine.get = _wanted_variable_definition_get
 
 # global only filter: when set, only allow stdout prints that equal this value
 ONLY_FILTER = None
@@ -655,6 +673,7 @@ def interpret(tokens: list, the_first_time_running: True):
         def __init__(self, base, index):
             self.base = base
             self.index = index
+            self.name = 'index'
 
         def get(self, local_vars, global_vars):
             def resolve_value(value):
@@ -966,6 +985,15 @@ def interpret(tokens: list, the_first_time_running: True):
         if len(token) == 3 and token[1] == '=':
             cb.code_lines.append(VariableDefinitionCodeLine(token[0], [tag(token[2])], line))
             return
+        elif token[0] == "index_assign":
+            base = tag(token[1])
+            idx_expr = tag(token[2])
+            rhs = tag(token[3])
+      
+            line_obj = IndexAssignCodeLine(base, idx_expr, rhs)
+            cb.code_lines.append(line_obj)
+            return
+
 
         if token[0] == 'getwcore' and len(token) > 1:
             arg = token[1]
@@ -1030,33 +1058,38 @@ def interpret(tokens: list, the_first_time_running: True):
 
 
 
+if __name__ == "__main__":
+    command = sys.argv[1]
+    BASE_DIR = os.path.dirname(os.path.abspath(command))
+    with open(command, 'r', encoding='utf-8') as f:
+        code_lines = [l for l in f.read().split('\n') if l.strip() != '' and not l.strip().startswith('#')]
 
-from wcf import CACHE_FILE
-import pickle
-from wcf import function_call_cache, function_call_disk_cache
-import time
+    from wcf import CACHE_FILE
+    import pickle
+    from wcf import function_call_cache, function_call_disk_cache
+    import time
 
-start_ms = time.perf_counter()
+    start_ms = time.perf_counter()
 
-# your interpreter work
-interpret(tokenize(code_lines), True)
+    # your interpreter work
+    interpret(tokenize(code_lines), True)
 
-end_ms = time.perf_counter()
-elapsed_ms = (end_ms - start_ms) * 1000
+    end_ms = time.perf_counter()
+    elapsed_ms = (end_ms - start_ms) * 1000
 
-from wcf import TIME_REC_ACTIVATE
-if TIME_REC_ACTIVATE: print(f"Program running time: {elapsed_ms:.2f} ms")
+    from wcf import TIME_REC_ACTIVATE
+    if TIME_REC_ACTIVATE: print(f"Program running time: {elapsed_ms:.2f} ms")
 
-# 1. clear in‑memory caches FIRST
-function_call_cache.clear()
-function_call_disk_cache.clear()
+    # 1. clear in‑memory caches FIRST
+    function_call_cache.clear()
+    function_call_disk_cache.clear()
 
-# 2. write empty to disk
-try:
-    with open(CACHE_FILE, 'wb') as _cf:
-        pickle.dump({}, _cf)
-    # print("Disk cache cleared after interpret")
-except Exception as e:
-    pass
+    # 2. write empty to disk
+    try:
+        with open(CACHE_FILE, 'wb') as _cf:
+            pickle.dump({}, _cf)
+        # print("Disk cache cleared after interpret")
+    except Exception as e:
+        pass
 
 

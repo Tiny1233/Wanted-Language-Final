@@ -2,6 +2,9 @@ import decimal
 d = decimal.Decimal
 
 def isint(n):
+    # if not isinstance(n, (float, int)): return False
+    if not isinstance(n, (int, str, float)):
+        raise TypeError('The loaded type was unexpected: ', n)
     return n == float(n)
 
 def add(a, b):

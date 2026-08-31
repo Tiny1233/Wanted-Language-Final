@@ -105,6 +105,18 @@ abstract func is_numberType(what):
     # @return wcf.NumberType: Result.
     return (what == (0 + what))
 
+abstract func is_listType(what):
+    # @brief Judge whether the value is wcf.ListType
+    # @param what: The value to be judged.
+    # @return wcf.NumberType: Result.
+    ...
+
+abstract func is_set(what):
+    # @brief Judge whether all value is unique.
+    # @param what: The list/string to be judged.
+    # @return wcf.NumberType: Result.
+    ...
+
 # Other:
 abstract func cif(cond: BooleanType, res_if_true: any, res_if_false: any) -> any:
     # @brief Conditional operator packed in function.
@@ -117,13 +129,13 @@ abstract func cif(cond: BooleanType, res_if_true: any, res_if_false: any) -> any
     else:
         return res_if_false
 
-abstract func len(sth):
+abstract func len(sth: any):
     # @brief Returns the length of sth. For number, it returns the digits of the integer part in decimal.
     # @param sth: The string, list, or number.
     # @return wcf.NumberType: The length.
     ...
 
-abstract func find_first_elem(target, in_which):
+abstract func find_first_elem(target: any, in_which: any{}):
     # @brief Returns the index which target first appears. Target is a character in string or an element in lists.
     # @param target: Something to be searched. It is a character in string, or an element in lists.
     # @param in_which: The base which is considered to contain the target.
@@ -136,6 +148,54 @@ abstract func find_first_elem(target, in_which):
             return ind
     
     return -1
+
+# List operates  
+abstract func contains(base: any, target: any{}):
+    # @brief Returns if target is in base.
+    # @param target: Something to be searched. It is a character in string, or an element in lists.
+    # @param in_which: The base which is considered to contain the target.
+    # @return wcf.NumberType: Whether it is found.
+    ...
+
+abstract func add_item(@li: any{}, elem: any):
+    # @brief Add item to a list.
+    # @param li(Alias): The list.
+    # @param elem: Something to be added to the list.
+    # @return 0
+    ...
+
+abstract func add_item_after(@li: any{}, index: NumberType, elem: any):
+    # @brief Add item to a list after a defined index.
+    # @param li(Alias): The list.
+    # @param index: The element will be added after the element from it.
+    # @param elem: Something to be added to the list.
+    # @return 0
+    ...
+
+abstract func delete_last_item(@li: any{}):
+    # @brief Delete the last element of a list.
+    # @param li(Alias): The list.
+    # @return 0
+    ...
+
+abstract func delete_item_by_index(@li: any{}, indexs: NumberType | NumberType{}):
+    # @brief Delete all items in the list by index.
+    # @param li(Alias): The list.
+    # @param indexs: The indexs to be deleted, which can be either NumberType or ListType[NumberType].
+    # @return 0
+    ...
+
+abstract func reset(@sth: any):
+    # @brief Reset the variable to its default value.
+    # @param sth(Alias): Something to be reset.
+    # @return 0
+    ...
+
+abstract func reverse(@sth: any[]):
+    # @brief Reverse a list or string.
+    # @param sth(Alias): Something to be reversed.
+    # @return 0
+    ...
 
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)

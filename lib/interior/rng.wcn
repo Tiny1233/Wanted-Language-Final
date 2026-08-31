@@ -1,0 +1,36 @@
+# Wanted random number generator library.
+# *?* %built 26/08/20
+ext @math.wcn
+
+func rand():
+    return (getwcore 'rand' 0)
+
+func rnum(left, right):
+    return left + (right - left) * rand()
+
+func rint(left, right):
+    res = round(rnum(left - 0.5, right + 0.5))
+    if res > right:
+        res = right
+    eif res < left:
+        res = left
+    return res
+
+func roll(probability):
+    val = rand()
+    if rand < probability:
+        return true
+    
+    return false
+
+func shuffle(@li):
+    i = len(li)
+    res = li
+    rep i:
+        i -= 1
+        j = rint(0, i)
+        # exchange
+        temp = res[i]
+        res[i] = res[j]
+        res[j] = temp
+    li = res

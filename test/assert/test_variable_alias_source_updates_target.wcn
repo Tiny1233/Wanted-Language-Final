@@ -1,0 +1,16 @@
+ext @builtin.wcn
+
+a = 114514
+
+a = '114514'
+
+a = {1, 2, 3, 4}
+
+alias_source = 10
+alias_target = 0
+@alias_source = alias_target
+alias_target = 20
+
+alias_source = 30
+
+assert ((alias_target) == (30))

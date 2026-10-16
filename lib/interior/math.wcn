@@ -25,7 +25,7 @@ func ceiling(origin):
 func round(origin):
     return floor((0 + origin) + 1 / 2)
 
-func abs(val):
+func stored abs(val):
     cval = 0 + val
     if cval > 0:
         return cval
@@ -49,5 +49,56 @@ func mod(a, b):
 func nmap(val, left, right, to_left, to_right):
     # (b-a)/(x-a)*(d-c)+c
     return ((val - left) / (right - left) * (to_right - to_left) + to_left)
+
+# Formula
+func stored fac(n):
+    a = 1
+    i = 1
+    rep n:
+        a *= i
+        i += 1
+    return a
+
+
+func stored nCr(n, r):
+    return (fac(n)/(fac(n - r) * fac(r)))
+
+func stored nPr(n, r):
+    return (fac(n)/fac(n - r))
+
+func get_dist(x: NumberType = 0, y: NumberType = 0):
+    return (x ^ 2 + y ^ 2) ^ 0.5
+
+type Vec2:
+    func _setup(x: NumberType = 0, y: NumberType = 0):
+        my.x = x
+        my.y = y
+
+    func get_length():
+        return get_dist(my.x, my.y)
+
+    func _add(other: Vec2):
+        return Vec2(my.x + other.x, my.y + other.y)
+
+    func _sub(other: Vec2):
+        return Vec2(my.x - other.x, my.y - other.y)
+
+    func _mul(other: Vec2):
+        if other is Vec2:
+            return my.x * other.x + my.y * other.y
+        eif other is NumberType:
+            return Vec2(my.x * other, my.y * other)
+
+    func _convert(otherType):
+        _normalized_45degrees = 0.5 ^ 0.5
+        return Vec2(my.x, my.y) * _normalized_45degrees
+
+    func _to_str():
+        return (
+            $'({my.x}, {my.y})'
+        )
+        
+
+
 
 

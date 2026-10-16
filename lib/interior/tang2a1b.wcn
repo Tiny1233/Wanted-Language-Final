@@ -1,7 +1,7 @@
 # this minigame is played by my classmates and its rules may differ from others.
-ext @builtin.wcn
-ext @rng.wcn 
-ext @string.wcn
+ext @builtin.wcn = nothing
+ext @rng.wcn  = nothing
+ext @string.wcn = nothing
 
 
 
@@ -47,8 +47,7 @@ func run_2a1b():
         if calc_ab(pwd, cguess):
             break
 
-    final:
-        outln('👎 逊! 正确答案是: ' + str(pwd))
+    final:  outln('👎 逊! 正确答案是: ' + str(pwd))
 
 
     

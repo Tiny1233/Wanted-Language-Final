@@ -41,16 +41,16 @@ func _wcore_rt(subcontent):
 func out(cont):
     _wcore_stdout(cont)
 
-func outs(cont, sep):
+func outs(cont, sep = '\n'):
 
     pcont = '' + cont
-    if sep:
-        out(pcont + sep)
-    else:
-        out(pcont + '\n')
-
+ 
+    out(pcont)
+    out(sep)
+  
 func outln(cont):
-    out(('' + cont) + '\n')
+    _wcore_stdout(cont)
+    _wcore_stdout('\n')
 
 func input(prompt):
     res = (getwcore 'stdin' prompt)
@@ -67,19 +67,30 @@ func int(sth):
     return (0 + sth) // 1 # 0 + sth returns number and use // 1 to convert
 
 # Type identify
+func is_nothing(what):
+    return (what == nothing)
+
 func is_stringType(what):
+    if is_nothing(what):
+        return false
     return (what == ('' + what))
 
 func is_numberType(what):
+    if is_nothing(what):
+        return false
     return (what == (0 + what))
 
 func is_listType(what):
+    if is_nothing(what):
+        return false
     if is_stringType(what) | is_numberType(what):
         return false
     a = what + 1
     return (len(a) - len(what)) == 1
 
 func is_set(what):
+    if is_nothing(what):
+        return false
     if is_numberType(what):
         return false
 
@@ -184,7 +195,14 @@ func reverse(@sth):
     
     sth = d
 
+# Built-in type definitions
+type NumberType:
+    func _convert(value):
+        return (0 + value)
 
+type StringType:
+    func _convert(value):
+        return ('' + value)
 
 
 set_wdbg(_wcore_wdbg_status)

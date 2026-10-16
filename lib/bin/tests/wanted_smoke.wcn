@@ -1,0 +1,29 @@
+ext @builtin.wcn
+
+left = 123456789012345678901234567890.12345678901234567890
+right = 0.00000000000000000001
+outln(left + right)
+outln(1 / 7)
+outln(123456789012345678901234567890 // 3)
+
+func stored fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+saved_fib = fib
+outln(saved_fib(30))
+
+func stored combine(a: NumberType = 10, b: NumberType = 6):
+    return a * 100 + b
+
+outln(combine(b = 3))
+if nothing is NothingType:
+    outln('type-check-ok')
+
+func increment(@value):
+    value += 1
+
+counter = 41
+increment(counter)
+outln(counter)

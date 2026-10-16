@@ -1,0 +1,5 @@
+ext @builtin.wcn
+func add(a: NumberType = 10, b: NumberType = 6):
+    return a + b
+
+outln(add(10))

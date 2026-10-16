@@ -37,7 +37,7 @@ abstract func round(origin: NumberType) -> NumberType:
     # @return wcf.NumberType: The processed integer (round value).
     ...
 
-abstract func abs(val: NumberType) -> NumberType:
+abstract func stored abs(val: NumberType) -> NumberType:
     # @brief Returns the absolute value of a number.
     # @param val: (wcf.NumberType) A number.
     # @return wcf.NumberType: The absolute value.
@@ -61,3 +61,8 @@ abstract func nmap(val, left, right, to_left, to_right):
     # @return wcf.NumberType: The result
     return (((val - left) / (right - left)) * (to_right - to_left) + to_left)
 
+abstract func stored fac(n: PositiveIntType) -> PositiveIntType:
+    # @brief Returns the factorial of number n.
+    # @param n: (wcf.PositiveIntType) The number.
+    # @return The value.
+    ...

@@ -1,0 +1,7 @@
+a = 0
+please:
+    a = 1
+final:
+    a += 1
+
+assert a == 2

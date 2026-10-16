@@ -1,0 +1,7 @@
+a = 1
+rep 5:
+    break
+final:
+    a = 2
+
+assert a == 1

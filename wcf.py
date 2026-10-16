@@ -36,15 +36,15 @@ class Error:
         self.emit()
 
     def emit(self):
-        RED = '\033[31m'
-        BLUE = '\033[34m'
-        BOLD = '\033[1m'
-        RESET = '\033[0m'
-        print(RED + 'Error in Wanted File occured' + RESET)
-        print(RED + f'Location: in file {self.filename}[{self.line}]' + RESET)
-        print(BLUE   + f'{self.content}' + RESET)
-        print(RED + BOLD + f'{self.attr}: ' + RESET + RED + f'{self.des}' + RESET)
-        sys.exit(1)
+        raise WantedError(self.attr, self.des, self.line)
+
+
+class WantedError(Exception):
+    def __init__(self, attr, des, line=0):
+        self.attr = attr
+        self.des = des
+        self.line = line
+        super().__init__(f'{attr}: {des}')
 
 
 class BreakLoop(Exception):
@@ -55,6 +55,42 @@ class ReturnException(BaseException):
     def __init__(self, value):
         self.value = value
         super().__init__()
+
+
+class TypeDefinition:
+    def __init__(self, name, methods=None, is_library=False):
+        self.name = name
+        self.methods = methods or {}
+        self.is_library = is_library
+
+    def get(self, local_vars=None, global_vars=None):
+        return self
+
+    def instantiate(self, args, local_vars, global_vars):
+        if self.is_library:
+            Error('TypeError', f'Library {self.name} cannot be constructed.')
+        instance = InstanceType(self)
+        _instances.append(instance)
+        setup = self.methods.get('_setup')
+        if setup is not None:
+            BoundMethod(instance, '_setup', setup).call(args, local_vars, global_vars)
+        elif args:
+            Error('TypeError', f'Type {self.name} does not accept constructor arguments.')
+        return instance
+
+    def get_member(self, name):
+        method = self.methods.get(name)
+        if isinstance(method, TypeDefinition):
+            return method
+        if method is not None:
+            return BoundMethod(None, name, method)
+        Error('AttributeError', f"Library {self.name} has no member '{name}'.")
+
+    def __repr__(self):
+        return f'<type: {self.name}>'
+
+
+_instances = []
 
 class CodeLine:
     def __init__(self, name: str, line: int = 0):
@@ -90,14 +126,17 @@ class KeywordCodeLine(CodeLine):
                 from lib.wcore.wsfilter import wsfilter
      
                 
-                print_debug(f"[GETWCORE DEBUG] cmd repr={repr(subcommand.get(local_vars, global_vars))}")
+                # print(f"[GETWCORE DEBUG] cmd repr={repr(subcommand.get(local_vars, global_vars))}")
   
                 match subcommand.get(local_vars, global_vars):
                     case 'stdout':
+           
                         result = subcontent.get(local_vars, global_vars)
                         if isinstance(result, (StringType, NumberType)):
-                            print(wsfilter(result.get(local_vars, global_vars)), end='')
+                            print('nothignnyudsa')
+                            print(wsfilter(result.get(local_vars, global_vars)) if result.get(local_vars, global_vars) is not None else 'Nothing', end='')
                         elif isinstance(result, ListType):
+                        
                             print(', '.join([str(wsfilter(i.get(local_vars, global_vars))) for i in result.get(local_vars, global_vars)]), end='')
                         return None
                     case 'wdbg':
@@ -258,6 +297,24 @@ class KeywordCodeLine(CodeLine):
                         return
 
                     Error('SyntaxError', 'Invalid branch in if statement.', self.line).emit()
+
+            case 'please':
+                if len(self.arg) < 1 or len(self.arg) > 3:
+                    Error('SyntaxError', 'Please block expected body, optional else and final blocks.', self.line).emit()
+                body = self.arg[0]
+                else_body = self.arg[1] if len(self.arg) > 1 else None
+                final_body = self.arg[2] if len(self.arg) > 2 else None
+                if not isinstance(body, CodeBlock):
+                    Error('TypeError', 'Please body must be a code block.', self.line).emit()
+                try:
+                    body.run(local_vars=local_vars, global_vars=global_vars)
+                except WantedError:
+                    if else_body is not None:
+                        else_body.run(local_vars=local_vars, global_vars=global_vars)
+                finally:
+                    if final_body is not None:
+                        final_body.run(local_vars=local_vars, global_vars=global_vars)
+                return
 
             case 'while':
                 if len(self.arg) < 2 or len(self.arg) > 3:
@@ -533,6 +590,106 @@ class LiteralType(Type):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+
+class InstanceType(Type):
+    def __init__(self, definition):
+        super().__init__({}, definition.name)
+        self.definition = definition
+
+    def get(self, local_vars=None, global_vars=None):
+        return self
+
+    def get_member(self, name):
+        if name in self.value:
+            return self.value[name]
+        method = self.definition.methods.get(name)
+        if method is not None:
+            return BoundMethod(self, name, method)
+        Error('AttributeError', f"Type {self.definition.name} has no member '{name}'.")
+
+    def set_member(self, name, value):
+        self.value[name] = value
+
+    def __repr__(self):
+        return f'<{self.definition.name} instance>'
+
+
+class BoundMethod:
+    def __init__(self, instance, name, function):
+        self.instance = instance
+        self.name = name
+        self.function = function
+
+    def get(self, local_vars=None, global_vars=None):
+        return self
+
+    def call(self, args, local_vars, global_vars):
+        _, body_block, arg_names = self.function
+        params = []
+        defaults = {}
+        for param in arg_names:
+            if isinstance(param, tuple):
+                pname, default = param
+                defaults[pname] = default
+            else:
+                pname = param
+            if isinstance(pname, str):
+                pname = pname.strip()
+            if pname and pname != ')':
+                params.append(pname)
+        if len(args) > len(params):
+            Error('TypeError', f'Method {self.name} expected {len(params)} arguments, got {len(args)}.')
+        bound_args = list(args)
+        for pname in params[len(bound_args):]:
+            if pname not in defaults:
+                Error('TypeError', f'Method {self.name} missing required argument {pname}.')
+            default = defaults[pname]
+            while hasattr(default, 'get') and not isinstance(default, (LiteralType, InstanceType, TypeDefinition)):
+                default = default.get(local_vars, global_vars)
+            bound_args.append(default)
+        method_local = [] if self.instance is None else [VariableSpace('my', self.instance)]
+        method_local.extend(VariableSpace(name, value) for name, value in zip(params, bound_args))
+        try:
+            body_block.run(method_local, global_vars)
+        except ReturnException as result:
+            return result.value
+        return NumberType(0)
+
+
+def is_instance_of(value, target):
+    if isinstance(target, Variable):
+        target = target.name
+    if isinstance(target, TypeDefinition):
+        return isinstance(value, InstanceType) and value.definition is target
+    builtin_types = {
+        'NumberType': NumberType,
+        'StringType': StringType,
+        'ListType': ListType,
+        'NothingType': NothingType,
+        'Type': Type,
+    }
+    target_type = builtin_types.get(target) if isinstance(target, str) else target
+    return isinstance(value, target_type) if isinstance(target_type, type) else False
+
+
+def invoke_magic(value, method_name, args, local_vars, global_vars):
+    if not isinstance(value, InstanceType):
+        return None
+    method = value.definition.methods.get(method_name)
+    if method is None:
+        return None
+    return BoundMethod(value, method_name, method).call(args, local_vars, global_vars)
+
+class NothingType(Type):
+    def __init__(self, name: str = '', line: int = 0):
+        self.name = name
+        self.value = None
+        self.line = line
+    
+    def get(self, local_vars:list, global_vars:list):
+        return None
+
 class StringType(LiteralType):
     def __init__(self, value: str, name: str = '', line: int = 0):
         """
@@ -793,6 +950,44 @@ class Variable(Type):
         raise RuntimeError('Nonetype may be produced when processing the value of variable ' + self.name)
 
 
+class MemberAccess(Type):
+    def __init__(self, base, member, line=0):
+        super().__init__(None, member, line)
+        self.base = base
+        self.member = member
+
+    def get(self, local_vars=None, global_vars=None):
+        value = self.base
+        while hasattr(value, 'get') and not isinstance(value, (InstanceType, TypeDefinition, LiteralType)):
+            value = value.get(local_vars, global_vars)
+        if not isinstance(value, (InstanceType, TypeDefinition)):
+            Error('AttributeError', f"Value has no member '{self.member}'.", self.line)
+        return value.get_member(self.member)
+
+
+class MemberAssignCodeLine(CodeLine):
+    def __init__(self, target, value, line=0):
+        super().__init__('member_assign', line)
+        self.target = target
+        self.value = value
+
+    def get(self, local_vars=None, global_vars=None):
+        owner = self.target.base
+        while hasattr(owner, 'get') and not isinstance(owner, InstanceType):
+            owner = owner.get(local_vars, global_vars)
+        if not isinstance(owner, InstanceType):
+            Error('AttributeError', f"Value has no member '{self.target.member}'.", self.line)
+        value = self.value
+        while hasattr(value, 'get') and not isinstance(value, LiteralType):
+            value = value.get(local_vars, global_vars)
+        if isinstance(value, (int, float)):
+            value = NumberType(value)
+        elif isinstance(value, str):
+            value = StringType(value)
+        owner.set_member(self.target.member, value)
+        return value
+
+
 class FunctionCall(CodeLine):
     """Call a function defined by 'func' keyword.
     fname can be a Variable, StringType or raw string. args is a list of expressions.
@@ -813,19 +1008,47 @@ class FunctionCall(CodeLine):
 
         print_debug("[FC_DEBUG] FunctionCall get enter, global_vars ids=%d, real var_list id=%d" % (id(global_vars), id(var_list)))
 
-        # 查找函数名
+        # Resolve either a named function or a callable value returned by an expression.
         target_var = None
-        for v in global_vars:
-            if v.name == self.fname:
-                target_var = v
-                break
-        if target_var is None:
-            Error('NameError', f"Undefined function '{self.fname}'")
+        callable_value = None
+        lookup_name = self.fname.name if hasattr(self.fname, 'name') else self.fname
+        if hasattr(self.fname, 'get') and not isinstance(self.fname, Variable):
+            callable_value = self.fname.get(local_vars, global_vars)
+        else:
+            for scope in (local_vars, global_vars):
+                for v in reversed(scope):
+                    if v.name == lookup_name:
+                        target_var = v
+                        break
+                if target_var is not None:
+                    break
+            if target_var is not None:
+                callable_value = target_var.value
+        if target_var is None and callable_value is None:
+            Error('NameError', f"Undefined function '{lookup_name}'")
 
-        print_debug(f"[FC_DUMP] raw value = {target_var.value}")
-        print_debug(f"[FC_DUMP] value type = {type(target_var.value)}")
+        if isinstance(callable_value, TypeDefinition):
+            resolved_args = []
+            for arg in self.args or []:
+                value = arg
+                while hasattr(value, 'get') and not isinstance(value, (LiteralType, InstanceType, TypeDefinition)):
+                    value = value.get(local_vars, global_vars)
+                resolved_args.append(value)
+            return callable_value.instantiate(resolved_args, local_vars, global_vars)
 
-        val = target_var.value
+        if isinstance(callable_value, BoundMethod):
+            resolved_args = []
+            for arg in self.args or []:
+                value = arg
+                while hasattr(value, 'get') and not isinstance(value, (LiteralType, InstanceType, TypeDefinition)):
+                    value = value.get(local_vars, global_vars)
+                resolved_args.append(value)
+            return callable_value.call(resolved_args, local_vars, global_vars)
+
+        print_debug(f"[FC_DUMP] raw value = {callable_value}")
+        print_debug(f"[FC_DUMP] value type = {type(callable_value)}")
+
+        val = callable_value
         if not isinstance(val, tuple):
             raise RuntimeError(f"Function store expects tuple, got {type(val)}")
         is_stored, body_block, arg_names = val
@@ -834,7 +1057,16 @@ class FunctionCall(CodeLine):
         # normalize parameter names: accept strings or Type/Variable with .name
         normalized_arg_names = []
         references = []
+        param_defaults = {}
         for p in arg_names:
+            if isinstance(p, tuple):
+                pname, default_value = p
+                if isinstance(pname, str):
+                    pn = pname[1:] if pname.startswith('@') else pname
+                    normalized_arg_names.append(pn)
+                    references.append(pn if pname.startswith('@') else False)
+                    param_defaults[pn] = default_value
+                    continue
             if isinstance(p, str):
                 if p.startswith('@'):
                     pn = p[1:]
@@ -842,7 +1074,6 @@ class FunctionCall(CodeLine):
                     references.append(pn)
                     continue
                 references.append(False)
-                
                 normalized_arg_names.append(p)
             elif hasattr(p, 'name'):
                 normalized_arg_names.append(p.name)
@@ -856,7 +1087,7 @@ class FunctionCall(CodeLine):
         # --------------------------
 
         def _resolve_type(value, local, global_, idx = 0):
-            while not isinstance(value, (LiteralType)):
+            while not isinstance(value, (LiteralType, InstanceType, TypeDefinition)):
                 if hasattr(value, 'get'):
                     if isinstance(value, Variable):
                         # 处理指针
@@ -879,13 +1110,46 @@ class FunctionCall(CodeLine):
                 return ListType(value)
             return value
 
-        # 解析实参
-        eval_args = []
-        idx = 0
+        # 解析实参：支持位置参数和命名参数，并应用默认值
+        positional_args = []
+        named_args = {}
         for a in (self.args or []):
-            v = _resolve_type(a, local_vars, global_vars, idx)
-            eval_args.append(v)
-            idx += 1
+            if isinstance(a, list) and len(a) == 3 and a[0] == 'kwarg':
+                kw_name = a[1].name if hasattr(a[1], 'name') else a[1]
+                named_args[kw_name] = a[2]
+            else:
+                positional_args.append(a)
+
+        eval_args = []
+        for a in positional_args:
+            eval_args.append(_resolve_type(a, local_vars, global_vars, len(eval_args)))
+
+        resolved_map = {}
+        used_positional = 0
+        for idx, pname in enumerate(arg_names):
+            if idx < len(positional_args):
+                resolved_map[pname] = _resolve_type(positional_args[idx], local_vars, global_vars, idx)
+                used_positional += 1
+            else:
+                resolved_map[pname] = None
+
+        for kw_name, kw_value in named_args.items():
+            if kw_name not in arg_names:
+                Error('TypeError', f"Function {self.fname} got unexpected keyword argument '{kw_name}'.", self.line).emit()
+            if kw_name in resolved_map and resolved_map[kw_name] is not None:
+                Error('TypeError', f"Function {self.fname} got multiple values for argument '{kw_name}'.", self.line).emit()
+            resolved_map[kw_name] = _resolve_type(kw_value, local_vars, global_vars, 0)
+
+        final_eval_args = []
+        for pname in arg_names:
+            if resolved_map.get(pname) is None:
+                if pname in param_defaults:
+                    resolved_map[pname] = _resolve_type(param_defaults[pname], local_vars, global_vars, 0)
+                else:
+                    Error('TypeError', f"Function {self.fname} missing required argument '{pname}'.", self.line).emit()
+            final_eval_args.append(resolved_map[pname])
+
+        eval_args = final_eval_args
         print_debug(f"resolved args values: {eval_args}")
 
         func_name = _normalize_function_name(self.fname, local_vars, global_vars)
@@ -952,7 +1216,7 @@ class FunctionCall(CodeLine):
         
         return result
 
-var_list: list[VariableSpace] = [VariableSpace('true', NumberType(1)), VariableSpace('false', NumberType(0)), VariableSpace('inf', NumberType(INF)), VariableSpace('nega_inf', NumberType(-INF))]    
+var_list: list[VariableSpace] = [VariableSpace('true', NumberType(1)), VariableSpace('false', NumberType(0)), VariableSpace('inf', NumberType(INF)), VariableSpace('nega_inf', NumberType(-INF)), VariableSpace('nothing', NothingType())]    
 # functions that must not be cached because they have side-effects
 NON_CACHEABLE_FUNCS = set(['out', 'outln', '_wcore_stdout', '_wcore_wdbg', 'input', 'getwcore', 'set_wdbg', 'outs'])
 # persistent cache for function calls stored on disk.
@@ -1139,11 +1403,18 @@ class BinaryOperator:
         b = self.b
 
         def _resolve(value):
-            while not isinstance(value, (LiteralType)) and hasattr(value, 'get'):
+            while not isinstance(value, (LiteralType, NothingType, InstanceType, TypeDefinition)) and hasattr(value, 'get'):
                 value = value.get(local_vars, global_vars)
             return value
 
         a = _resolve(a)
+        if self.operator == 'is':
+            if isinstance(b, Variable):
+                try:
+                    b = b.get(local_vars, global_vars)
+                except (WantedError, RuntimeError):
+                    pass
+            return NumberType(1 if is_instance_of(a, b) else 0)
         if isinstance(a, (int, float)): a = NumberType(a)
         if isinstance(a, str): a = StringType(a)
         b = _resolve(b)
@@ -1152,8 +1423,28 @@ class BinaryOperator:
 
         a_val = a.get(local_vars, global_vars) if isinstance(a, (LiteralType)) else a
         b_val = b.get(local_vars, global_vars) if isinstance(b, (LiteralType)) else b
+
+        magic_names = {
+            '+': '_add', '-': '_sub', '*': '_mul', '/': '_div',
+            '//': '_floordiv', '^': '_pow', '==': '_eq', '!=': '_ne',
+            '<': '_lt', '<=': '_le', '>': '_gt', '>=': '_ge',
+            '->': '_convert',
+        }
+        magic_name = magic_names.get(self.operator)
+        if self.operator == '->' and isinstance(b, TypeDefinition):
+            convert_method = b.methods.get('_convert')
+            if convert_method is not None:
+                target_instance = b.instantiate([a], local_vars, global_vars)
+                return BoundMethod(target_instance, '_convert', convert_method).call([a], local_vars, global_vars)
+            Error('TypeError', f"Type {b.name} does not define '_convert'.")
+        if magic_name and isinstance(a, InstanceType):
+            magic_result = invoke_magic(a, magic_name, [b], local_vars, global_vars)
+            if magic_result is not None:
+                return magic_result
         from lib.wcore.dec import add, sub, mul, div
         # arithmetic
+        if isinstance(a, NothingType) or isinstance(b, NothingType):
+            Error('TypeError', 'NothingType does not support binary operators.')
         match self.operator:
             case '+':
                 if isinstance(a, NumberType) and isinstance(b, StringType):
@@ -1193,11 +1484,11 @@ class BinaryOperator:
                 return NumberType(a_val ** b_val)
             case '/':
                 if isinstance(b_val, (int, float)) and float(b_val) == 0:
-                    return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)
+                    Error('ZeroDivisionError', 'Cannot divide by zero.')
                 return NumberType(div(a_val, b_val))
             case '//':
                 if isinstance(b_val, (int, float)) and float(b_val) == 0:
-                    return NumberType(INF) if float(a_val) > 0 else NumberType(-INF)
+                    Error('ZeroDivisionError', 'Cannot divide by zero.')
                 return NumberType(int(a_val / b_val))
 
         def _is_truthy(value):

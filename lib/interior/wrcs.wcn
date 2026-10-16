@@ -1,0 +1,6 @@
+# Wanted lib of Rectangular Coordinate System
+# *?* %built 26/09/19
+
+type RCS:
+    func _setup():
+        

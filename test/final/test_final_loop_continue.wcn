@@ -1,0 +1,8 @@
+a = 0
+rep 3:
+    a += 1
+    continue
+final:
+    a += 10
+
+assert a == 13

@@ -1,8 +1,9 @@
 # Wanted built-in file for implements
 
 # Constants BooleanType aka wcf.NumberType
-true = 1
-false = 0
+abstract true = 1
+abstract false = 0
+abstract nothing = ...
 
 # Program settings
 _wcore_wdbg_status = false
@@ -93,6 +94,12 @@ abstract func int(sth: any) -> NumberType:
     ...
 
 # Type identify
+abstract func is_nothing(what):
+    # @brief Judge whether the value is wcf.NothingType
+    # @param what: The value to be judged.
+    # @return wcf.NumberType: Result.
+    return (what == nothing)
+
 abstract func is_stringType(what):
     # @brief Judge whether the value is wcf.StringType
     # @param what: The value to be judged.
@@ -150,10 +157,10 @@ abstract func find_first_elem(target: any, in_which: any{}):
     return -1
 
 # List operates  
-abstract func contains(base: any, target: any{}):
+abstract func contains(base: any{}, target: any):
     # @brief Returns if target is in base.
     # @param target: Something to be searched. It is a character in string, or an element in lists.
-    # @param in_which: The base which is considered to contain the target.
+    # @param base: The base which is considered to contain the target.
     # @return wcf.NumberType: Whether it is found.
     ...
 

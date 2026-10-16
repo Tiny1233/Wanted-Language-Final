@@ -39,7 +39,7 @@ def lex(line: str) -> list:
     import re
 
     # include braces so list literals can be written with { ... }
-    TOK_RE = re.compile(r"\s*(?:(\+=|-=|\*=|/=|==|!=|>=|<=|\d+(?:\.\d+)?|//|@?\w+|[:=+\-*/()\[\]{},<>!&|])|('(\\'|[^'])*'))")
+    TOK_RE = re.compile(r"\s*(?:(\+=|-=|\*=|/=|->|==|!=|>=|<=|\d+(?:\.\d+)?|//|@?\w+|[:=+\-*/^()\[\]{},.<>!&|])|(\$?'(\\'|[^'])*'))")
 
     # tokenize keeping quoted strings as one token
     tokens = []
@@ -116,34 +116,60 @@ def lex(line: str) -> list:
             first = parse_primary()
             second = parse_compare()
             return maybe_index(['getwcore', [first, second]])
-        if isinstance(t, str) and re.match(r"^'", t):
+        if isinstance(t, str) and re.match(r"^\$?'", t):
             return maybe_index(consume())
         
         if t and re.match(r"^\d+$", t) or (t and re.match(r"^@?\w+$", t)):
             # identifier or number
             name = consume()
-            # function call
-            if peek() == '(':
-                consume('(')
-                args = []
-                if peek() != ')':
-                    while peek() != ')':
-                        args.append(parse_compare())
-                        if peek() == ',':
-                            consume(',')
-                            continue
-                        break
-                consume(')')
-                return maybe_index([name, args])
-            return maybe_index(name)
+            node = name
+            while True:
+                if peek() == '.':
+                    consume('.')
+                    member = consume()
+                    node = ['member', node, member]
+                    continue
+                if peek() == '(':
+                    consume('(')
+                    args = []
+                    if peek() != ')':
+                        while peek() != ')':
+                            if isinstance(peek(), str) and re.match(r"^@?\w+$", peek()):
+                                head = peek()
+                                lookahead = tokens[idx + 1] if idx + 1 < len(tokens) else None
+                                if lookahead == '=':
+                                    consume(head)
+                                    consume('=')
+                                    args.append(['kwarg', head, parse_compare()])
+                                    if peek() == ',':
+                                        consume(',')
+                                        continue
+                                    break
+                            args.append(parse_compare())
+                            if peek() == ',':
+                                consume(',')
+                                continue
+                            break
+                    consume(')')
+                    node = ["call", node, args]
+                    continue
+                break
+            return maybe_index(node)
         return maybe_index(consume())
 
-    def parse_term():
+    def parse_power():
         node = parse_primary()
+        if peek() == '^':
+            consume('^')
+            node = [node, '^', parse_power()]
+        return node
+
+    def parse_term():
+        node = parse_power()
         parts = [node]
         while peek() in ('*', '/', '//'):
             op = consume()
-            right = parse_primary()
+            right = parse_power()
             parts.append(op)
             parts.append(right)
         # fold to right-associative nested binary operations: a*b/c -> [a, '*', [b, '/', c]]
@@ -219,7 +245,7 @@ def lex(line: str) -> list:
     def parse_compare():
         node = parse_bitor()
         parts = [node]
-        while peek() in ('==', '!=', '<', '>', '<=', '>='):
+        while peek() in ('==', '!=', '<', '>', '<=', '>=', 'is'):
             op = consume()
             right = parse_bitor()
             parts.append(op)
@@ -230,11 +256,15 @@ def lex(line: str) -> list:
                 return p[0]
             return [p[0], p[1], fold_ops(p[2:])]
 
-        return fold_ops(parts)
+        node = fold_ops(parts)
+        if peek() == '->':
+            consume('->')
+            node = [node, '->', parse_compare()]
+        return node
 
     # special handling: for keywords until ':' pack into list
     # include 'assert' and 'func' and 'return' so assertions like: assert x == 1  -> ['assert', <expr>]
-    if tokens and tokens[0] in ('rep', 'if', 'eif', 'else', 'assert', 'while', 'final', 'func', 'return'):
+    if tokens and tokens[0] in ('rep', 'if', 'eif', 'else', 'assert', 'while', 'please', 'final', 'func', 'return', 'type'):
         # consume keyword
         kw = tokens[0]
         # build rest until ':'
@@ -245,14 +275,94 @@ def lex(line: str) -> list:
             colon_i = len(tokens)
 
         if kw == 'func':
-            func_tokens = tokens[1:colon_i]
-            if func_tokens and func_tokens[0] == 'stored':
-                tail = ''.join(func_tokens[1:])
-                inner = lex(tail) if tail else []
-                return ['func', ['stored', inner], ':']
+            raw = line.strip()
+            rest = raw[len('func'):].strip()
+            stored = False
+            if rest.startswith('stored'):
+                stored = True
+                rest = rest[len('stored'):].strip()
+
+            name_end = rest.find('(')
+            if name_end == -1:
+                return ['func', [rest.strip(), []], ':']
+
+            func_name = rest[:name_end].strip()
+            param_block = rest[name_end + 1:]
+            closing = param_block.rfind(')')
+            if closing == -1:
+                return ['func', [func_name, []], ':']
+            param_block = param_block[:closing]
+
+            def split_top_level_commas(s: str):
+                items = []
+                buf = []
+                depth = 0
+                in_string = None
+                escape = False
+                for ch in s:
+                    if in_string is not None:
+                        buf.append(ch)
+                        if escape:
+                            escape = False
+                        elif ch == '\\':
+                            escape = True
+                        elif ch == in_string:
+                            in_string = None
+                        continue
+                    if ch in ("'", '"'):
+                        in_string = ch
+                        buf.append(ch)
+                    elif ch in '([{':
+                        depth += 1
+                        buf.append(ch)
+                    elif ch in ')]}':
+                        depth = max(0, depth - 1)
+                        buf.append(ch)
+                    elif ch == ',' and depth == 0:
+                        item = ''.join(buf).strip()
+                        if item:
+                            items.append(item)
+                        buf = []
+                    else:
+                        buf.append(ch)
+                tail = ''.join(buf).strip()
+                if tail:
+                    items.append(tail)
+                return items
+
+            def parse_param_text(item: str):
+                item = item.strip()
+                if not item:
+                    return None
+                left, default_expr = item, None
+                if '=' in item:
+                    left, default_expr = item.split('=', 1)
+                    default_expr = default_expr.strip()
+                left = left.strip()
+                if ':' in left:
+                    left = left.split(':', 1)[0].strip()
+                left = left.strip()
+                if left.startswith('@'):
+                    left = left[1:]
+                if default_expr is None:
+                    return left
+                return (left, default_expr)
+
+            params = []
+            for item in split_top_level_commas(param_block):
+                parsed = parse_param_text(item)
+                if parsed is not None:
+                    params.append(parsed)
+
+            if stored:
+                return ['func', ['stored', [func_name, params]], ':']
+            return ['func', [func_name, params], ':']
+
+        if kw == 'type':
+            return ['type', tokens[1] if len(tokens) > 1 else '', ':']
 
         # parse middle tokens
-        mid_line = ''.join(tokens[1:colon_i])
+        mid_line = ' '.join(tokens[1:colon_i])
         if mid_line:
             # naive: parse mid as expression
             inner = lex(mid_line)
@@ -273,9 +383,12 @@ def lex(line: str) -> list:
 
     # ext import special: `ext name` -> ['ext', 'name']
     if tokens and tokens[0] == 'ext':
-        # if next token exists and is an identifier or string, return pair
+        if '=' in tokens:
+            eq_i = tokens.index('=')
+            path = ''.join(tokens[1:eq_i]).strip()
+            alias = ''.join(tokens[eq_i + 1:]).strip()
+            return ['ext', path, alias]
         if len(tokens) > 1:
-            # join remaining tokens to preserve symbols like @ and . in module names
             name = ''.join(tokens[1:]).strip()
             return ['ext', name]
         return ['ext']
@@ -316,6 +429,8 @@ def lex(line: str) -> list:
         if isinstance(left_ast, list) and left_ast[0] == "index":
             # 输出 index_assign 语法树
             return ["index_assign", left_ast[1], left_ast[2], rhs]
+        if isinstance(left_ast, list) and left_ast[0] == "member":
+            return ["member_assign", left_ast, rhs]
     # default: parse whole line possibly assignment
     # look for '=' at top-level
     if '=' in tokens:
@@ -332,7 +447,179 @@ def lex(line: str) -> list:
     return parse_compare() if tokens else []
 
 
+def _expand_anonymous_functions(code_lines):
+    """Expand `func(args)(...)` expressions into named internal functions."""
+    import re
+
+    expanded = []
+    anonymous_id = 0
+    index = 0
+    while index < len(code_lines):
+        source_line = code_lines[index]
+        match = re.search(r"\bfunc\s*(stored\s*)?\(([^()]*)\)\s*\(", source_line)
+        if not match:
+            expanded.append(source_line)
+            index += 1
+            continue
+
+        base_indent = len(source_line) - len(source_line.lstrip(' '))
+        body_start = index + 1
+        body_end = body_start
+        while body_end < len(code_lines):
+            candidate = code_lines[body_end]
+            candidate_indent = len(candidate) - len(candidate.lstrip(' '))
+            if candidate.strip().startswith(')') and candidate_indent <= base_indent:
+                break
+            body_end += 1
+        if body_end == len(code_lines):
+            expanded.append(source_line)
+            index += 1
+            continue
+
+        function_name = f'__anonymous_{anonymous_id}'
+        anonymous_id += 1
+        is_stored = bool(match.group(1))
+        params = match.group(2).strip()
+        body = code_lines[body_start:body_end]
+        # Inside an anonymous function, `.(...)` refers to that function.
+        body = [
+            re.sub(r"(?<![\w.])\.(?=\s*\()", function_name, body_line)
+            for body_line in body
+        ]
+        prefix = source_line[:match.start()]
+        suffix = source_line[match.end():]
+
+        stored_prefix = 'stored ' if is_stored else ''
+        expanded.append(' ' * base_indent + f'func {stored_prefix}{function_name}({params}):')
+        expanded.extend(body)
+        if '=' in prefix and not suffix.strip():
+            variable_name = prefix.split('=', 1)[0].strip()
+            expanded.append(' ' * base_indent + f'{variable_name} = {function_name}')
+        else:
+            expanded.append(prefix + function_name + suffix + ')')
+        index = body_end + 1
+
+    return expanded
+
+
+def _merge_continuation_lines(code_lines):
+    """Join logical statements split across multiple physical lines.
+
+    Example:
+        add(
+            1,
+            2,
+            3 + 4,
+            6
+        )
+    should be treated as one statement, even though it spans several source lines.
+    """
+    merged = []
+    current = ''
+
+    def _is_continuation(line: str) -> bool:
+        text = line.rstrip()
+        if not text:
+            return False
+
+        stripped = text.strip()
+        if stripped.endswith(':'):
+            # Block headers like `func name():` or `if cond:` are complete
+            # statements and must not consume the next indented body line.
+            return False
+        if stripped.endswith(','):
+            return True
+        if stripped.endswith(('+', '-', '*', '/', '//', '^', '->', '%', '&', '|', '==', '!=', '<', '>', '<=', '>=', '=', '+=', '-=', '*=', '/=')):
+            return True
+
+        stack = []
+        in_string = None
+        escape = False
+        for ch in text:
+            if in_string is not None:
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == in_string:
+                    in_string = None
+                continue
+
+            if ch in ("'", '"'):
+                in_string = ch
+            elif ch in '([{':
+                stack.append(ch)
+            elif ch in ')]}':
+                pair = {'}': '{', ')': '(', ']': '['}
+                if stack and stack[-1] == pair[ch]:
+                    stack.pop()
+                else:
+                    stack.append(ch)
+        return bool(stack)
+
+    def _needs_arg_separator(line: str) -> bool:
+        text = line.rstrip()
+        if not text:
+            return False
+        if text.endswith(('(', '[', '{')):
+            return False
+        if text.strip().endswith(','):
+            return False
+        if text.strip().endswith(('+', '-', '*', '/', '//', '^', '->', '%', '&', '|', '==', '!=', '<', '>', '<=', '>=', '=', '+=', '-=', '*=', '/=')):
+            return False
+
+        stack = []
+        in_string = None
+        escape = False
+        for ch in text:
+            if in_string is not None:
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == in_string:
+                    in_string = None
+                continue
+
+            if ch in ("'", '"'):
+                in_string = ch
+            elif ch in '([{':
+                stack.append(ch)
+            elif ch in ')]}':
+                pair = {'}': '{', ')': '(', ']': '['}
+                if stack and stack[-1] == pair[ch]:
+                    stack.pop()
+                else:
+                    stack.append(ch)
+        return bool(stack)
+
+    for raw in code_lines:
+        if raw.strip() == '' or raw.lstrip().startswith('#'):
+            if current:
+                merged.append(current)
+                current = ''
+            continue
+        line = raw.rstrip()
+        if not current:
+            current = line
+            continue
+        if _is_continuation(current):
+            separator = ', ' if _needs_arg_separator(current) and not line.strip().startswith((')', ']', '}')) else ' '
+            current = f'{current}{separator}{line.strip()}'
+            continue
+        merged.append(current)
+        current = line
+
+    if current:
+        merged.append(current)
+
+    return merged
+
+
 def tokenize(code_lines, indent=0):
+    if indent == 0:
+        code_lines = _merge_continuation_lines(code_lines)
+        code_lines = _expand_anonymous_functions(code_lines)
     res = []
     i = 0
     n = len(code_lines)
@@ -380,7 +667,7 @@ def get_line_indent(line):
     return c_indent
 
 
-from wcf import BinaryOperator as BinaryOperator, CodeBlock as CodeBlock, CodeLine as CodeLine, Error as Error, INF as INF, KeywordCodeLine as KeywordCodeLine, NumberType as NumberType, Operator as Operator, StringType as StringType, TINY as TINY, Type as Type, Variable as Variable, VariableDefinitionCodeLine as VariableDefinitionCodeLine, VariableSpace as VariableSpace, ListType as ListType, lib as lib, math as math, sys as sys, var_list as var_list, IndexAssignCodeLine as IndexAssignCodeLine
+from wcf import BinaryOperator as BinaryOperator, BoundMethod as BoundMethod, CodeBlock as CodeBlock, CodeLine as CodeLine, Error as Error, INF as INF, InstanceType as InstanceType, KeywordCodeLine as KeywordCodeLine, MemberAccess as MemberAccess, MemberAssignCodeLine as MemberAssignCodeLine, NumberType as NumberType, Operator as Operator, StringType as StringType, TINY as TINY, Type as Type, TypeDefinition as TypeDefinition, Variable as Variable, VariableDefinitionCodeLine as VariableDefinitionCodeLine, VariableSpace as VariableSpace, ListType as ListType, lib as lib, math as math, sys as sys, var_list as var_list, IndexAssignCodeLine as IndexAssignCodeLine
 
 # Add ListType addition support: allow concatenation with scalars or other lists.
 def _listtype_add(self, other):
@@ -435,6 +722,7 @@ BreakLoop = wcf.BreakLoop
 BREAK_DEPTH = 0
 # when a break occurs, set this to skip executing any following 'final' blocks
 WANTED_SKIP_FINAL = False
+CURRENT_TYPE_DEFINITION = None
 
 _original_keyword_get = KeywordCodeLine.get
 
@@ -550,6 +838,14 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
         command = resolve_arg_value(subcommand_node, local_vars, global_vars)
         command = resolve_arg_value(command, local_vars, global_vars)
 
+        if command == 'typename':
+            value = resolve_arg_value(subcontent_node, local_vars, global_vars)
+            if isinstance(value, InstanceType):
+                return StringType(f'<type: {value.definition.name}>')
+            if isinstance(value, TypeDefinition):
+                return StringType(f'<type: {value.name}>')
+            return StringType(f'<type: {type(value).__name__}>')
+
         # do not cache stdin reads across repeated executions of the same line
         # so each prompt occurs every time the code reaches getwcore 'stdin'.
         match command:
@@ -562,6 +858,10 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
 
                     def format_wcore_output(item):
                         item_val = resolve_arg_value(item, local_vars, global_vars)
+                        if isinstance(item_val, InstanceType):
+                            text_value = wcf.invoke_magic(item_val, '_to_str', [], local_vars, global_vars)
+                            if text_value is not None:
+                                return format_wcore_output(text_value)
                         if isinstance(item_val, ListType):
                             inner = [resolve_arg_value(sub_item, local_vars, global_vars) for sub_item in item_val.get()]
                             return '{' + ', '.join(format_wcore_output(sub_item) for sub_item in inner) + '}'
@@ -569,13 +869,15 @@ def _wanted_keyword_get_impl(self, local_vars: list, global_vars: list):
                             return str(ws.wsfilter(str(item_val.get())))
                         if isinstance(item_val, StringType):
                             return "'" + str(ws.wsfilter(str(item_val.get()))) + "'"
-                        return "'" + str(ws.wsfilter(str(item_val.get()))) + "'"
+                        if isinstance(item_val, (int, float, str)):
+                            return str(ws.wsfilter(str(item_val)))
+                        return "'" + str(ws.wsfilter(str(item_val))) + "'"
 
                     if isinstance(out_val, ListType):
                         list_items = [resolve_arg_value(it, local_vars, global_vars) for it in out_val.get()]
                         print('{' + ', '.join(format_wcore_output(item) for item in list_items) + '}', end='')
                     else:
-                        print(ws.wsfilter(str(out_val)), end='')
+                        print(format_wcore_output(out_val) if out_val is not None else 'Nothing', end='')
                 return None
 
             case 'stdin':
@@ -653,7 +955,7 @@ def _wanted_variable_definition_get(self, local_vars: list | None = None, global
     target_list.append(VariableSpace(self.name, t))
     return resolve_arg_value(t, local_vars, global_vars)
 
-# VariableDefinitionCodeLine.get = _wanted_variable_definition_get
+VariableDefinitionCodeLine.get = _wanted_variable_definition_get
 
 # global only filter: when set, only allow stdout prints that equal this value
 ONLY_FILTER = None
@@ -752,6 +1054,31 @@ def interpret(tokens: list, the_first_time_running: True):
                     return b[i]
                 except Exception:
                     return None
+
+    class InterpolatedString(StringType):
+        def __init__(self, parts):
+            super().__init__('')
+            self.parts = parts
+
+        def get(self, local_vars=None, global_vars=None):
+            result = []
+            for part in self.parts:
+                if isinstance(part, str):
+                    result.append(part)
+                    continue
+                value = part
+                while hasattr(value, 'get') and not isinstance(value, (NumberType, StringType, ListType, InstanceType, TypeDefinition)):
+                    value = value.get(local_vars, global_vars)
+                if isinstance(value, InstanceType):
+                    converted = wcf.invoke_magic(value, '_to_str', [], local_vars, global_vars)
+                    value = converted if converted is not None else value
+                if isinstance(value, (NumberType, StringType)):
+                    value = value.get(local_vars, global_vars)
+                result.append(str(value))
+            return ''.join(result)
+
+        def __repr__(self):
+            return repr(self.get())
     
     def tag(name):
         # print(name)
@@ -774,14 +1101,27 @@ def interpret(tokens: list, the_first_time_running: True):
                 elems = name[1]
                 return ListType([tag(el) for el in elems])
 
+            if len(name) == 3 and name[0] == 'member':
+                return MemberAccess(tag(name[1]), name[2], line)
+
             # getwcore keyword (special form)
             if name and name[0] == 'getwcore' and len(name) == 2:
                 arg = name[1]
                 if isinstance(arg, list) and len(arg) == 2:
                     return KeywordCodeLine('getwcore', [tag(arg[0]), tag(arg[1])], line)
 
+            if len(name) == 3 and name[0] == 'call' and isinstance(name[2], list):
+                return wcf.FunctionCall(
+                    tag(name[1]),
+                    [tag(arg) for arg in name[2]],
+                    line,
+                )
+
+            if len(name) == 3 and name[0] == 'kwarg':
+                return ['kwarg', name[1], name[2]]
+
             # handle binary operators including arithmetic, comparison and bit ops
-            if len(name) == 3 and isinstance(name[1], str) and name[1] in ['+', '-', '*', '/', '//', '==', '!=', '<', '>', '<=', '>=', '&', '|']:
+            if len(name) == 3 and isinstance(name[1], str) and name[1] in ['+', '-', '*', '/', '//', '^', '->', 'is', '==', '!=', '<', '>', '<=', '>=', '&', '|']:
                 return BinaryOperator(name[1], resolve_binary_operand(tag(name[0])), resolve_binary_operand(tag(name[2])))
 
             # function call pattern: ['fname', [arg1, arg2]] (after keywords/ops)
@@ -797,6 +1137,23 @@ def interpret(tokens: list, the_first_time_running: True):
             return NumberType(int(float(name)) if int(float(name)) == float(name) else float(name))
         except Exception:
             if isinstance(name, str):
+                if name.startswith("$'") and name.endswith("'"):
+                    content = name[2:-1]
+                    parts = []
+                    cursor = 0
+                    while cursor < len(content):
+                        start = content.find('{', cursor)
+                        if start < 0:
+                            parts.append(content[cursor:])
+                            break
+                        if start > cursor:
+                            parts.append(content[cursor:start])
+                        end = content.find('}', start + 1)
+                        if end < 0:
+                            raise SyntaxError('Unclosed interpolation expression.')
+                        parts.append(tag(lex(content[start + 1:end])))
+                        cursor = end + 1
+                    return InterpolatedString(parts)
                 if name.startswith("'") and name.endswith("'"):
                     return StringType(name[1:-1])
                 lower_name = name.lower()
@@ -842,7 +1199,7 @@ def interpret(tokens: list, the_first_time_running: True):
         if token and isinstance(token[0], list):
             header = token[0]
             body = token[1] if len(token) > 1 else []
-            # support rep and conditional blocks: if / eif / else
+                # support rep and conditional blocks: if / eif / else / please
             if header and (header[-1] == ':' or header[0] == 'final'):
                 kw = header[0]
                 # rep block
@@ -859,6 +1216,11 @@ def interpret(tokens: list, the_first_time_running: True):
                     cb.code_lines.append(KeywordCodeLine('while', [cond, body_block], line))
                     return
 
+                if kw == 'please':
+                    body_block = interpret(body, the_first_time_running=False)
+                    cb.code_lines.append(KeywordCodeLine('please', [body_block], line))
+                    return
+
                 # final blocks after loops
                 if kw == 'final':
                     body_block = interpret(body, the_first_time_running=False)
@@ -870,7 +1232,15 @@ def interpret(tokens: list, the_first_time_running: True):
                     if prev_loop:
                         prev_loop.arg.append(body_block)
                     else:
-                        cb.code_lines.append(KeywordCodeLine('final', [body_block], line))
+                        prev_please = None
+                        for prev in reversed(cb.code_lines):
+                            if isinstance(prev, KeywordCodeLine) and prev.name == 'please':
+                                prev_please = prev
+                                break
+                        if prev_please:
+                            prev_please.arg.append(body_block)
+                        else:
+                            cb.code_lines.append(KeywordCodeLine('final', [body_block], line))
                     return
                 # token 形如 ["ret", expr_ast]
                 
@@ -887,9 +1257,7 @@ def interpret(tokens: list, the_first_time_running: True):
                         if isinstance(node, list):
                             if len(node) >= 2 and node[0] == 'stored':
                                 is_stored = True
-                                # 递归解析真实header
                                 sub_stored, real_name, real_args = _extract_func_header(node[1])
-                                # 子层不会再有stored，直接返回，带上本层is_stored=True
                                 return (True, real_name, real_args)
 
                             if len(node) >= 2 and isinstance(node[0], str) and isinstance(node[1], list):
@@ -897,7 +1265,13 @@ def interpret(tokens: list, the_first_time_running: True):
                                 arg_part = node[1]
                                 func_args = []
                                 for item in arg_part:
-                                    if isinstance(item, str):
+                                    if isinstance(item, tuple) and len(item) == 2:
+                                        raw_name, default_text = item
+                                        func_args.append((raw_name, tag(lex(default_text))))
+                                    elif isinstance(item, list) and len(item) == 2 and isinstance(item[0], str):
+                                        raw_name, default_text = item
+                                        func_args.append((raw_name, tag(lex(default_text))))
+                                    elif isinstance(item, str):
                                         func_args.append(item)
                                     elif hasattr(item, 'name'):
                                         func_args.append(item.name)
@@ -912,7 +1286,13 @@ def interpret(tokens: list, the_first_time_running: True):
                                     arg_part = node[1]
                                     if isinstance(arg_part, list):
                                         for item in arg_part:
-                                            if isinstance(item, str):
+                                            if isinstance(item, tuple) and len(item) == 2:
+                                                raw_name, default_text = item
+                                                func_args.append((raw_name, tag(lex(default_text))))
+                                            elif isinstance(item, list) and len(item) == 2 and isinstance(item[0], str):
+                                                raw_name, default_text = item
+                                                func_args.append((raw_name, tag(lex(default_text))))
+                                            elif isinstance(item, str):
                                                 func_args.append(item)
                                             elif hasattr(item, 'name'):
                                                 func_args.append(item.name)
@@ -936,7 +1316,22 @@ def interpret(tokens: list, the_first_time_running: True):
                     body_block = interpret(body, the_first_time_running=False)
                     if func_name:
                         print_debug(f"[FUNC_DEF_STORE] func={func_name}, args={func_args}")
-                        var_list.append(VariableSpace(func_name, (is_stored_func, body_block, func_args)))
+                        function_value = (is_stored_func, body_block, func_args)
+                        if CURRENT_TYPE_DEFINITION is not None:
+                            CURRENT_TYPE_DEFINITION.methods[func_name] = function_value
+                        else:
+                            var_list.append(VariableSpace(func_name, function_value))
+                    return
+
+                if kw == 'type':
+                    type_name = header[1] if len(header) > 1 else ''
+                    definition = TypeDefinition(type_name)
+                    previous_type = globals().get('CURRENT_TYPE_DEFINITION')
+                    globals()['CURRENT_TYPE_DEFINITION'] = definition
+                    interpret(body, the_first_time_running=False)
+                    globals()['CURRENT_TYPE_DEFINITION'] = previous_type
+                    var_list[:] = [item for item in var_list if item.name != type_name]
+                    var_list.append(VariableSpace(type_name, definition))
                     return
 
                 # if / eif (else-if) / else blocks
@@ -954,7 +1349,15 @@ def interpret(tokens: list, the_first_time_running: True):
                         if prev_conditional:
                             prev_conditional.arg.append(body_block)
                         else:
-                            cb.code_lines.append(KeywordCodeLine(kw, [body_block], line))
+                            prev_please = None
+                            for prev in reversed(cb.code_lines):
+                                if isinstance(prev, KeywordCodeLine) and prev.name == 'please':
+                                    prev_please = prev
+                                    break
+                            if prev_please:
+                                prev_please.arg.append(body_block)
+                            else:
+                                cb.code_lines.append(KeywordCodeLine(kw, [body_block], line))
                         return
 
                     # 'if' and 'eif' have a condition expression in header[1]
@@ -983,6 +1386,10 @@ def interpret(tokens: list, the_first_time_running: True):
             return
 
         if len(token) == 3 and token[1] == '=':
+            left = tag(token[0])
+            if isinstance(left, MemberAccess):
+                cb.code_lines.append(MemberAssignCodeLine(left, tag(token[2]), line))
+                return
             cb.code_lines.append(VariableDefinitionCodeLine(token[0], [tag(token[2])], line))
             return
         elif token[0] == "index_assign":
@@ -992,6 +1399,10 @@ def interpret(tokens: list, the_first_time_running: True):
       
             line_obj = IndexAssignCodeLine(base, idx_expr, rhs)
             cb.code_lines.append(line_obj)
+            return
+
+        if token[0] == 'member_assign' and len(token) == 3:
+            cb.code_lines.append(MemberAssignCodeLine(tag(token[1]), tag(token[2]), line))
             return
 
 
@@ -1016,15 +1427,31 @@ def interpret(tokens: list, the_first_time_running: True):
                 if not os.path.isabs(path):
                     path = os.path.join(BASE_DIR, path)
                 if os.path.exists(path):
+                    alias = token[2] if len(token) > 2 else os.path.splitext(os.path.basename(path))[0]
+                    before_ids = {id(item) for item in var_list}
                     with open(path, 'r', encoding='utf-8') as ext_file:
                         ext_lines = [l for l in ext_file.read().split('\n') if l.strip() != '' and not l.strip().startswith('#')]
                     # print(ext_lines, path)
                     ext_tokens = tokenize(ext_lines)
                     ext_cb = interpret(ext_tokens, the_first_time_running=False)
-                    # cb.code_lines.extend(ext_cb.code_lines)
+                    imported = [item for item in var_list if id(item) not in before_ids]
+                    methods = {
+                        item.name: item.value
+                        for item in imported
+                        if (isinstance(item.value, tuple) and len(item.value) == 3)
+                        or isinstance(item.value, TypeDefinition)
+                    }
+                    if len(token) > 2 and alias == 'nothing':
+                        # `nothing` means import members into the current scope.
+                        return
+                    var_list.append(VariableSpace(alias, TypeDefinition(alias, methods, is_library=True)))
                 else:
                     Error('Ext Error', f"Included file '{arg}' not found.", line).emit()
 
+            return
+
+        if token[0] == 'call' and len(token) == 3:
+            cb.code_lines.append(tag(token))
             return
 
 
@@ -1051,6 +1478,10 @@ def interpret(tokens: list, the_first_time_running: True):
             print_debug(idx, type(line).__name__, repr(line))
         print_debug("======================")
         cb.run(local_vars=[], global_vars=var_list)
+        for instance in list(wcf._instances):
+            destructor = instance.definition.methods.get('_die')
+            if destructor is not None:
+                BoundMethod(instance, '_die', destructor).call([], [], var_list)
     else:
         return cb
         
@@ -1072,7 +1503,13 @@ if __name__ == "__main__":
     start_ms = time.perf_counter()
 
     # your interpreter work
-    interpret(tokenize(code_lines), True)
+    try:
+        interpret(tokenize(code_lines), True)
+    except wcf.WantedError as error:
+        print('Error in Wanted File occured')
+        print(f'Location: in file <default>[{error.line}]')
+        print(f'{error.attr}: {error.des}')
+        sys.exit(1)
 
     end_ms = time.perf_counter()
     elapsed_ms = (end_ms - start_ms) * 1000

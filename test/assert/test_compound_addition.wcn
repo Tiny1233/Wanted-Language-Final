@@ -1,0 +1,30 @@
+ext @builtin.wcn
+
+a = 114514
+
+a = '114514'
+
+a = {1, 2, 3, 4}
+
+alias_source = 10
+alias_target = 0
+@alias_source = alias_target
+alias_target = 20
+
+alias_source = 30
+
+alias_chain = 0
+@alias_target = alias_chain
+alias_chain = 40
+
+func local_alias_test():
+    local_original = 5
+    local_alias = 0
+    @local_original = local_alias
+    local_alias = 9
+    return local_original
+
+a = 1000
+a += 100
+
+assert ((a) == (1100))

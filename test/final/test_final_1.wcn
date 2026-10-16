@@ -1,0 +1,8 @@
+a = 1
+rep 5:
+    a += 1
+final:
+    a = 0
+
+assert a != 5
+assert a == 0

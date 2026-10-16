@@ -1,0 +1,5 @@
+ext @builtin.wcn
+
+a = 114514
+
+assert ((a) == (114514))

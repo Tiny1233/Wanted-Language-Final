@@ -1,0 +1,7 @@
+a = 0
+while a < 3:
+    a += 1
+final:
+    a += 10
+
+assert a == 13

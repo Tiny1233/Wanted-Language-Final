@@ -1,0 +1,5 @@
+assert 0 + 1
+assert 'hello'
+assert {1, 2} != {1, '2'}
+assert {1, 2} == {1, 2}
+assert {1, 2} != {2, 1}

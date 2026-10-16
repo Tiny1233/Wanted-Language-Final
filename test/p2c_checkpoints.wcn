@@ -1,0 +1,223 @@
+# This file is the test file of Wanted Interpreter which was converted from python to cpp
+# All checkpoints must be passed
+# Usage:
+# ./wanted.exe "test/p2c_checkpoints.wcn"
+ext @builtin.wcn
+passed_checkpoint = 0
+total = 0
+func check(id, name, ans, correct_ans):
+    @total = _total
+    @passed_checkpoint = _passed_checkpoint
+
+    _total += 1
+    is_true = ans == correct_ans
+    p = '' + id + '\t' + name
+    if is_true:
+        _passed_checkpoint += 1
+        getwcore 'stdout' (p + '\t[Passed]')
+        getwcore 'stdout' '\n'
+    else:
+        getwcore 'stdout' (p + '\t[Failed]')
+        getwcore 'stdout' '\n'
+
+check(1, 'Getwcore stdout基本功能', true, true)
+check(2, '字面量1', 1, 1)
+check(2, '字面量2', 'abc', 'abc')
+check(2, '字面量3', '你', '你')
+check(2, '字面量4', {1, '2'}, {1, '2'})
+check(3, '高精度四则运算1', 3, 1 + 2)
+check(3, '高精度四则运算2', 1234567890, 1234567891 - 1)
+check(3, '高精度四则运算3', 9759285659183750128577205 * 1585749205827018282827151, 15475779483489640382787736055804722286064573692955)
+check(4, '高精度幂1', 817235 ^ 55, 15103677087402332123960135785732690169667558819042267920882664808880434516918299510008793359440773237771006928398911756824413368502382537919687025795742239178843077695206502579833267521976119296355536092194409120375613494872684927640971610684894247314609689205669456063742958269266482213832869518910229089669883251190185546875)
+check(4, '高精度幂2', 67 ^ 114,14877416035581437625382418693025659213718389161995860818124841388673684313635040473785898559535254662713147324086515521317239491795101967337216385962348715207087048600082818652000569169058413804824769503776329)
+check(4, '高精度幂3', 1880088 ^ 91, 8916905198332821492829768037857634201776535423411650883349915755309869958095337408118854998724889028014319355998671787410625638931862973654052452402496278580376261935213223818150200093841383085292034770019017852142408364023905019660567033496625815516212503651322048281284370061120142543929745920247866600200513312308120722142696957008636354124512649244741414667336019220805775796393508145640812488175429404454025208823953375006539377941305798111331779226237472521806418338906376770338331070941412187976933906493498812575091431104697696945947022944607801603903205368922112)
+check(5, '运算优先级1', 1 + 2 * 3, 7)
+check(5, '运算优先级2', (1 + 2) * 7, 21)
+check(5, '运算优先级3', (3 + 4) * (5 + 7) / (10 - 8) - 8 + 6, 40)
+check(5, '运算优先级4', 2 + 1 == 3, true)
+check(5, '运算优先级5', 2 + 1 < 100, true)
+check(5, '运算优先级6', 8 ^ 2 > 1, 1)
+check(5, '运算优先级7', 51 + (3 + 3) / (1 + 5 / 2.5) + (3 * (1 + (1 / (3 ^ 2 - 1)))), 56.375)
+a = 114514
+check(6, '变量赋值1', a, 114514)
+a = '114514'
+check(6, '变量赋值2', a == 114514, false)
+check(6, '变量赋值3', a == '114514', true)
+a = {1, 2, 3, 4}
+check(6, '变量赋值4', a == 1234, false)
+check(6, '变量赋值5', a == '{1, 2, 3, 4}', false)
+check(6, '变量赋值5', a == {1,2,3,4}, true)
+alias_source = 10
+alias_target = 0
+@alias_source = alias_target
+alias_target = 20
+check(6, '变量别名目标更新源', alias_source, 20)
+alias_source = 30
+check(6, '变量别名源更新目标', alias_target, 30)
+alias_chain = 0
+@alias_target = alias_chain
+alias_chain = 40
+check(6, '链式变量别名', alias_source, 40)
+func local_alias_test():
+    local_original = 5
+    local_alias = 0
+    @local_original = local_alias
+    local_alias = 9
+    return local_original
+check(6, '函数内变量别名', local_alias_test(), 9)
+a = 1000
+a += 100
+check(7, '变量更新1', a, 1100)
+a -= 1000
+check(7, '变量更新2', a, 100)
+a *= -5.5
+check(7, '变量更新3', a + 550, 0)
+a /= 550
+check(7, '变量更新4', a + 1, 0)
+a = 2
+a ^= 9
+check(7, '变量更新5', a, 512)
+a = 10
+a //= 3
+check(7, '变量更新6', a, 3)
+a = 'abc'
+a += 'dabc'
+check(7, '变量更新7', a, 'abcdabc')
+a = 'abc'
+a *= 5
+check(7, '变量更新8', a, 'abcabcabcabcabc')
+a = 1555
+a += '123'
+check(7, '变量更新9', a, 1678)
+a = '1234'
+a += 1234
+check(7, '变量更新10', a, '12341234')
+
+check(8, 'ext关键字1', builtin.find_first_elem('1', '54312'), 3)
+ext @builtin.wcn = bn
+check(8, 'ext关键字2', bn.cif(1 == 2, 9, 8), 8)
+ext @builtin.wcn = nothing
+check(8, 'ext关键字3', cif(1 == 2, 9, 8), 8)
+
+a = 100
+@a = a2
+a2 = 200
+check(9, '别名1', a, 200)
+check(9, '别名2', a2, 200)
+
+b = 100
+b2 = b + 100
+b2 = 300
+check(9, '别名1', b, 100)
+check(9, '别名2', b2, 300)
+
+func add1(a: NumberType = 10, b: NumberType = 6):
+    return a + b
+
+check(10, '函数默认值', add1(14), 20)
+func add2(a, b, c, d, e, f):
+    return (a + b + c + d + e + f)
+
+a = 5
+check(11, '分行', 24, add2(
+        1,2,
+        3 + 4,
+        len({1, 3, 6}),
+        a / 1,
+        6
+    )
+
+)
+func add3(a = 10, b = 20):
+    return add1(
+        a,
+        b
+    )
+check(11, '分行2', add3(b = 5), 15)
+lis = {1, 2}
+check(12, '长度', (getwcore 'lengthOf' lis), 2)
+check(12, '长度2', (getwcore 'lengthOf' 'asndufoasdf'), 11)
+check(12, '长度内置', len('auds8u8atnu8sadtsat'), 19)
+
+lis = {1, 2, 3}
+check(13, '列表1', lis, {1, 2, 3})
+check(13, '列表2', lis != {2, 1, 3}, true)
+check(13, '列表3', lis == {1, 2, 3}, true)
+check(13, '列表4', len(lis), 3)
+check(13, '列表5', {1, 2, '3'} != lis, true)
+check(13, '列表6', len({1, 2, 3, {1, 2}, 3}), 5)
+a = 911
+lis = {1, 2, a, a+5}
+check(13, '列表7', lis, {1, 2, 911, 916})
+lis = {1, 2}
+check(13, '列表8', lis + 1, {1, 2, 1})
+check(13, '列表9', 3 * 'ab', 'ababab')
+check(13, '列表10', lis[0], 1)
+check(13, '列表11', lis[lis[1] - 1], 2)
+lis = {4, 5, lis}
+check(13, '列表12', lis[2], {1, 2})
+check(13, '列表13', lis[lis[2][0]], 5)
+a = 100
+b = nothing
+if a < 50:
+    b = 1
+eif a == 100:
+    b = 2
+else:
+    b = 3
+check(14, '分支结构1', b, 2)
+
+a = 50
+b = nothing
+if a < 50:
+    b = 1
+eif a == 100:
+    b = 2
+else:
+    b = 3
+check(14, '分支结构2', b, 3)
+
+a = -50
+b = nothing
+if a < 50:
+    b = 1
+eif a == 100:
+    b = 2
+else:
+    b = 3
+check(14, '分支结构3', b, 1)
+
+a = 1
+rep 10:
+    a += 1
+check(15, 'rep循环1', a, 11)
+
+a = 1
+rep 10:
+    a += 1
+    if a > 5:
+        break
+check(15, 'rep循环2', a, 6)
+
+a = 1
+rep 10:
+    if a == 5:
+        continue
+    a += 1
+
+check(15, 'rep循环2', a, 5)
+
+a3 = 1
+b3 = 1
+rep 10:
+    a3 += 1
+    if a3 == 5:
+        a3 = 4
+        continue
+    b3 += 2
+check(15, 'rep循环3', b3, 7)
+    
+
+
+
+getwcore 'stdout' ($'测试用例 {total} 个, 通过 {passed_checkpoint} 个, 通过率 {(passed_checkpoint / total * 1000) // 1 / 10}%.')

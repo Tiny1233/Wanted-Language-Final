@@ -1,0 +1,87 @@
+ext @builtin.wcn
+
+a = 114514
+
+a = '114514'
+
+a = {1, 2, 3, 4}
+
+alias_source = 10
+alias_target = 0
+@alias_source = alias_target
+alias_target = 20
+
+alias_source = 30
+
+alias_chain = 0
+@alias_target = alias_chain
+alias_chain = 40
+
+func local_alias_test():
+    local_original = 5
+    local_alias = 0
+    @local_original = local_alias
+    local_alias = 9
+    return local_original
+
+a = 1000
+a += 100
+
+a -= 1000
+
+a *= -5.5
+
+a /= 550
+
+a = 2
+a ^= 9
+
+a = 10
+a //= 3
+
+a = 'abc'
+a += 'dabc'
+
+a = 'abc'
+a *= 5
+
+a = 1555
+a += '123'
+
+a = '1234'
+a += 1234
+
+ext @builtin.wcn = bn
+
+ext @builtin.wcn = nothing
+
+a = 100
+@a = a2
+a2 = 200
+
+b = 100
+b2 = b + 100
+b2 = 300
+
+func add1(a: NumberType = 10, b: NumberType = 6):
+    return a + b
+
+func add2(a, b, c, d, e, f):
+    return (a + b + c + d + e + f)
+
+a = 5
+
+func add3(a = 10, b = 20):
+    return add1(
+        a,
+        b
+    )
+
+lis = {1, 2}
+
+lis = {1, 2, 3}
+
+a = 911
+lis = {1, 2, a, a+5}
+
+assert ((lis) == ({1, 2, 911, 916}))

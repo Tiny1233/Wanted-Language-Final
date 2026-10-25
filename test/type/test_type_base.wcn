@@ -1,0 +1,17 @@
+type T2:
+    func _setup(val = 5):
+        my.value = val
+
+    func ret():
+        return 2 * my.value
+
+type T3:
+    func _setup(val = 5):
+        my.value = val
+
+    func ret():
+        return 3 * my.value
+
+c = getwcore 'typeBase' T3(1)
+assert c == T3
+assert c != T2

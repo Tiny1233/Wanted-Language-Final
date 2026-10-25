@@ -1,0 +1,23 @@
+ext @builtin.wcn = nothing
+
+type T2:
+    func _setup(val = 5):
+        my.value = val
+
+    func ret():
+        return 2 * my.value
+
+type T3:
+    func _setup(val = 5):
+        my.value = val
+
+    func ret():
+        return 3 * my.value
+
+t2r = T2(100)
+assert t2r.ret() == 200
+
+assert T2 == T2
+assert T3() == T3()
+assert T3(1) != T3(2)
+assert T3 != T2

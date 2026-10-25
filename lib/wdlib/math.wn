@@ -66,3 +66,43 @@ abstract func stored fac(n: PositiveIntType) -> PositiveIntType:
     # @param n: (wcf.PositiveIntType) The number.
     # @return The value.
     ...
+
+abstract func get_dist(x: NumberType = 0, y: NumberType = 0):
+    # @brief Returns the distance from (0, 0) to (x, y)
+    # @param x: X coordiate.
+    # @param y: Y coordiate.
+    # @return The distance.
+    return (x ^ 2 + y ^ 2) ^ 0.5
+
+type Vec2:
+    func _setup(x: NumberType = 0, y: NumberType = 0):
+        ...
+
+    func get_length():
+        return get_dist(my.x, my.y)
+
+    func _add(other: Vec2):
+        return Vec2(my.x + other.x, my.y + other.y)
+
+    func _sub(other: Vec2):
+        return Vec2(my.x - other.x, my.y - other.y)
+
+    func _mul(other: Vec2):
+        if other is Vec2:
+            return my.x * other.x + my.y * other.y
+        eif other is NumberType:
+            return Vec2(my.x * other, my.y * other)
+
+    func _convert(otherType):
+        _normalized_45degrees = 0.5 ^ 0.5
+        return Vec2(my.x, my.y) * _normalized_45degrees
+
+    func _to_str():
+        return (
+            $'({my.x}, {my.y})'
+        )
+        
+
+
+
+

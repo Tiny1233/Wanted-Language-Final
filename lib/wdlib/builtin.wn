@@ -204,6 +204,13 @@ abstract func reverse(@sth: any[]):
     # @return 0
     ...
 
+abstract func assertion(cond: BooleanType, re : any = 0):
+    # @brief Make an assertion for a condition.
+    # @param cond: True or false
+    # @param re: Print first if it's assigned to a value.
+    # @return 0
+    ...
+
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

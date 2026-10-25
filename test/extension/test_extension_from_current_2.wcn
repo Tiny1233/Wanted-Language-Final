@@ -1,0 +1,4 @@
+ext 'support/snums.wcn' = sn
+
+assert sn.s == 100
+assert sn.tester(87) == 88

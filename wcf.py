@@ -183,6 +183,16 @@ class KeywordCodeLine(CodeLine):
                                 length = math.ceil(math.log10(abs(num)))
                         return NumberType(length)
 
+                    case 'typeBase':
+                        value = subcontent
+                        while hasattr(value, 'get') and not isinstance(value, (InstanceType, TypeDefinition)):
+                            value = value.get(local_vars, global_vars)
+                        if isinstance(value, InstanceType):
+                            return value.definition
+                        if isinstance(value, TypeDefinition):
+                            return value
+                        Error('TypeError', 'typeBase expects an instance or type', self.line)
+
                     case 'rand':
                         import random
                         return NumberType(random.random())

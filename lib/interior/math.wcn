@@ -59,6 +59,8 @@ func stored fac(n):
         i += 1
     return a
 
+func sqrt(num: NumberType = 0):
+    return num ^ 0.5
 
 func stored nCr(n, r):
     return (fac(n)/(fac(n - r) * fac(r)))

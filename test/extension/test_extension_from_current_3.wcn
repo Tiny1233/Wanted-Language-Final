@@ -1,0 +1,8 @@
+ext @builtin.wcn = nothing
+
+ext './support/some_testers.wcn' = st 
+
+find = st.Finder({1, 7, 9, 3, 6, 2})
+
+assert find.min() == 1
+assert find.max() == 9

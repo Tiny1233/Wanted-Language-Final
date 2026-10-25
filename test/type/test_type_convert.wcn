@@ -1,0 +1,8 @@
+type AddOne:
+    func _setup(value):
+        my.value = value
+
+    func _convert(value):
+        return value + my.value
+
+assert (3 -> AddOne) == 6

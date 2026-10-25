@@ -1,0 +1,7 @@
+ext @builtin.wcn = nothing
+
+res = func(a_a)(
+    return 114 + a_a * 2
+)
+
+assert res(2) == 118

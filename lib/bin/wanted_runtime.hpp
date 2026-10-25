@@ -3,10 +3,23 @@
 
 #include "../../wcf.h"
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace wanted {
+
+class ExecutionError : public std::runtime_error {
+public:
+    std::string errorType;
+    std::string filename;
+    std::string sourceText;
+    int line;
+
+    ExecutionError(const std::string& type, const std::string& message, const std::string& file,
+        int sourceLine, const std::string& source)
+        : std::runtime_error(message), errorType(type), filename(file), sourceText(source), line(sourceLine) {}
+};
 
 class Interpreter {
 public:

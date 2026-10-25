@@ -1,0 +1,10 @@
+ext @builtin.wcn = nothing
+
+func tester(a = 1, b = 5):
+    return (a + 2 * b)
+
+assert tester(1, 2) == 5
+assert tester(2) == 12
+assert tester(a = 3) == 13
+assert tester(b = 0) == 1
+assert tester(a = 5, b = 7) == 19

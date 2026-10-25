@@ -204,6 +204,15 @@ type StringType:
     func _convert(value):
         return ('' + value)
 
+func assertion(cond, re = 0):
+    if !re:
+        outln(cond)
+    else:
+        outln(re)
+
+    assert cond
+
+
 
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

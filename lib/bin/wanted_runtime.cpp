@@ -12,37 +12,100 @@
 
 namespace wanted {
 namespace {
-
+// basic utilities for the interpreter
+// tokens
 typedef std::vector<std::string> Tokens;
+// precision of division
 const int DIVISION_PRECISION = 100;
 
-bool valuesEqual(const Value& left, const Value& right) {
+// judge if equal, LHS and RHS are both Value
+bool valuesEqual(const Value& left, const Value& right,
+                 std::vector<std::pair<const InstanceValue*, const InstanceValue*> >& comparedInstances) {
+    // if the type is different, return false directly
     if (left.kind != right.kind) return false;
+    // otherwise, judge their values
     if (left.kind == Value::Number) return left.number == right.number;
     if (left.kind == Value::String) return left.string == right.string;
-    if (left.kind == Value::List) {
-        if (left.list.size() != right.list.size()) return false;
-        for (std::size_t i = 0; i < left.list.size(); ++i)
-            if (!valuesEqual(left.list[i], right.list[i])) return false;
+    if (left.kind == Value::Instance) {
+        if (left.instance == right.instance) return true;
+        if (left.instance->type != right.instance->type ||
+            left.instance->members.size() != right.instance->members.size()) return false;
+
+        for (std::size_t i = 0; i < comparedInstances.size(); ++i) {
+            if ((comparedInstances[i].first == left.instance.get() &&
+                 comparedInstances[i].second == right.instance.get()) ||
+                (comparedInstances[i].first == right.instance.get() &&
+                 comparedInstances[i].second == left.instance.get())) return true;
+        }
+        comparedInstances.push_back(std::make_pair(left.instance.get(), right.instance.get()));
+
+        for (std::map<std::string, Value>::const_iterator member = left.instance->members.begin();
+             member != left.instance->members.end(); ++member) {
+            std::map<std::string, Value>::const_iterator other = right.instance->members.find(member->first);
+            if (other == right.instance->members.end() ||
+                !valuesEqual(member->second, other->second, comparedInstances)) return false;
+        }
         return true;
     }
+    // list comparison
+    if (left.kind == Value::List) {
+        // if length is different, return false directly
+        if (left.list.size() != right.list.size()) return false;
+        // compare each element
+        for (std::size_t i = 0; i < left.list.size(); ++i)
+            if (!valuesEqual(left.list[i], right.list[i], comparedInstances)) return false;
+        return true;
+    }
+    // function comparison, compare their string representation
     return left.toString() == right.toString();
 }
 
+bool valuesEqual(const Value& left, const Value& right) {
+    std::vector<std::pair<const InstanceValue*, const InstanceValue*> > comparedInstances;
+    return valuesEqual(left, right, comparedInstances);
+}
+
+bool isNumericValue(const Value& value) {
+    return value.kind == Value::Number || value.kind == Value::PositiveInfinity || value.kind == Value::NegativeInfinity;
+}
+
+int compareNumericValues(const Value& left, const Value& right) {
+    if (left.kind == Value::PositiveInfinity) return right.kind == Value::PositiveInfinity ? 0 : 1;
+    if (left.kind == Value::NegativeInfinity) return right.kind == Value::NegativeInfinity ? 0 : -1;
+    if (right.kind == Value::PositiveInfinity) return -1;
+    if (right.kind == Value::NegativeInfinity) return 1;
+    if (left.number < right.number) return -1;
+    if (left.number > right.number) return 1;
+    return 0;
+}
+
+// utilities for parsing and evaluating the source code
 std::string trim(const std::string& value) {
+    // trim leading and trailing whitespace characters
     std::string::size_type first = value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return "";
     std::string::size_type last = value.find_last_not_of(" \t\r\n");
     return value.substr(first, last - first + 1);
 }
 
+std::string unquote(const std::string& value) {
+    if (value.size() >= 2 && (value[0] == '\'' || value[0] == '"') && value[value.size() - 1] == value[0])
+        return value.substr(1, value.size() - 2);
+    return value;
+}
+
+// utilities for handling file paths, such as getting the directory of a path, joining paths, and checking if a file can be opened
 std::size_t utf8Next(const std::string& value, std::size_t offset) {
+    // determine the next character position in a UTF-8 encoded string
+    // if the offset is beyond the string size, return the string size
     if (offset >= value.size()) return value.size();
     unsigned char lead = static_cast<unsigned char>(value[offset]);
+    // determine the width of the UTF-8 character based on the lead byte
     std::size_t width = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3 : (lead & 0xF8) == 0xF0 ? 4 : 1;
     return std::min(value.size(), offset + width);
 }
 
+// utilities for handling file paths
 std::string pathDirectory(const std::string& path) {
     std::string::size_type separator = path.find_last_of("/\\");
     if (separator == std::string::npos) return ".";
@@ -51,23 +114,27 @@ std::string pathDirectory(const std::string& path) {
     return path.substr(0, separator);
 }
 
+// get the parent directory of a given path
 std::string parentPath(const std::string& path) {
     std::string parent = pathDirectory(path);
     if (parent == path || parent == ".") return "";
     return parent;
 }
 
+// join path, literally
 std::string joinPath(const std::string& directory, const std::string& path) {
     if (directory.empty() || directory == ".") return path;
     if (directory[directory.size() - 1] == '/' || directory[directory.size() - 1] == '\\') return directory + path;
     return directory + "/" + path;
 }
 
+// returns whether the file can be opened
 bool canOpenFile(const std::string& path) {
     std::ifstream file(path.c_str(), std::ios::in | std::ios::binary);
     return file.good();
 }
 
+// strip comments from a line of code, considering quotes and escape characters
 std::string stripComment(const std::string& line) {
     char quote = 0;
     bool escape = false;
@@ -75,6 +142,7 @@ std::string stripComment(const std::string& line) {
         char ch = line[i];
         if (quote) {
             if (escape) escape = false;
+            // akimbo quotes, 2x for each one
             else if (ch == '\\') escape = true;
             else if (ch == quote) quote = 0;
         } else if (ch == '\'' || ch == '"') quote = ch;
@@ -83,24 +151,31 @@ std::string stripComment(const std::string& line) {
     return line;
 }
 
+// count indent
 int indentation(const std::string& line) {
     int count = 0;
     while (count < static_cast<int>(line.size()) && line[count] == ' ') ++count;
     return count;
 }
 
+// tokenize the code
 Tokens tokenize(const std::string& input) {
     Tokens result;
     for (std::string::size_type i = 0; i < input.size();) {
         unsigned char ch = static_cast<unsigned char>(input[i]);
+        // ignore whitespace
         if (std::isspace(ch)) { ++i; continue; }
+        // handle string literals and interpolated strings
         bool interpolated = input[i] == '$' && i + 1 < input.size() && (input[i + 1] == '\'' || input[i + 1] == '"');
+        // ############## String Tokenizer ###############
         if (input[i] == '\'' || input[i] == '"' || interpolated) {
             if (interpolated) ++i;
             char quote = input[i++];
             std::string text;
+            // generate the string
             while (i < input.size() && input[i] != quote) {
                 if (input[i] == '\\' && i + 1 < input.size()) {
+                    // handle escape characteres
                     ++i;
                     char escaped = input[i++];
                     if (escaped == 'n') text += '\n';
@@ -112,6 +187,7 @@ Tokens tokenize(const std::string& input) {
             result.push_back(std::string(1, interpolated ? '\x02' : '\x01') + text);
             continue;
         }
+        // ############## Number Tokenizer ###############
         if (std::isdigit(ch) || (input[i] == '.' && i + 1 < input.size() && std::isdigit(static_cast<unsigned char>(input[i + 1])))) {
             std::string number;
             bool dot = false;
@@ -124,6 +200,7 @@ Tokens tokenize(const std::string& input) {
             result.push_back(number);
             continue;
         }
+        // ############## Identifier Tokenizer ###############
         if (std::isalpha(ch) || input[i] == '_' || input[i] == '@') {
             std::string name;
             while (i < input.size()) {
@@ -134,32 +211,46 @@ Tokens tokenize(const std::string& input) {
             result.push_back(name);
             continue;
         }
+        // ############## Operator Tokenizer ###############
         if (i + 1 < input.size()) {
+            // handle operator that has 2 or 3 characters, such as //=, ->, ==, !=, >=, <=, +=, -=, *=, /=, ^=
+            
             if (i + 2 < input.size() && input.substr(i, 3) == "//=") {
+                // 2 chars
                 result.push_back("//="); i += 3; continue;
             }
+
+            // 2 chars
             std::string pair = input.substr(i, 2);
             if (pair == "//" || pair == "->" || pair == "==" || pair == "!=" || pair == ">=" || pair == "<=" ||
                 pair == "+=" || pair == "-=" || pair == "*=" || pair == "/=" || pair == "^=") {
                 result.push_back(pair); i += 2; continue;
             }
         }
+        // 1 character
         result.push_back(input.substr(i, 1));
         ++i;
     }
     return result;
 }
 
+// parse expr
 struct ExpressionParser {
     Tokens tokens;
     std::size_t position;
+    // parse the expression and return the ASTNode
     explicit ExpressionParser(const Tokens& source) : tokens(source), position(0) {}
+    // return the next token without consuming it
     std::string peek() const { return position < tokens.size() ? tokens[position] : ""; }
-    std::string take() { return position < tokens.size() ? tokens[position++] : ""; }
+    // consume the next token and return it
+    std::string take() { return (position < tokens.size()) ? tokens[position++] : ""; }
+    
+    // accept the next token if it matches the given token, and return true; otherwise, return false
     bool accept(const std::string& token) { if (peek() != token) return false; ++position; return true; }
 
     ASTNode parse() { return parseCompare(); }
 
+    // parse comparison operators, such as ==, !=, <, >, <=, >=, is
     ASTNode parseCompare() {
         ASTNode left = parseAdd();
         while (peek() == "==" || peek() == "!=" || peek() == "<" || peek() == ">" ||
@@ -276,6 +367,122 @@ struct ExpressionParser {
 
 struct SourceLine { int indent; std::string text; int number; };
 
+namespace {
+std::size_t nextAnonymousFunctionId() {
+    static std::size_t id = 0;
+    return id++;
+}
+
+bool isIdentifierBodyChar(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '@' || ch == '.';
+}
+
+std::size_t findMatchingDelimiter(const std::string& text, std::size_t openIndex) {
+    if (openIndex >= text.size()) return std::string::npos;
+    char open = text[openIndex];
+    char close = open == '(' ? ')' : open == '[' ? ']' : '}';
+    int depth = 0;
+    char quote = 0;
+    bool escape = false;
+    for (std::size_t i = openIndex; i < text.size(); ++i) {
+        char ch = text[i];
+        if (quote) {
+            if (escape) escape = false;
+            else if (ch == '\\') escape = true;
+            else if (ch == quote) quote = 0;
+            continue;
+        }
+        if (ch == '\'' || ch == '"') { quote = ch; continue; }
+        if (ch == open) ++depth;
+        else if (ch == close) {
+            --depth;
+            if (depth == 0) return i;
+        }
+    }
+    return std::string::npos;
+}
+
+std::vector<SourceLine> expandAnonymousFunctions(const SourceLine& line) {
+    std::string text = line.text;
+    std::size_t candidate = 0;
+    while (candidate < text.size()) {
+        candidate = text.find("func", candidate);
+        if (candidate == std::string::npos) break;
+        if ((candidate > 0 && isIdentifierBodyChar(text[candidate - 1])) ||
+            (candidate + 4 < text.size() && isIdentifierBodyChar(text[candidate + 4]))) {
+            ++candidate;
+            continue;
+        }
+
+        std::size_t pos = candidate + 4;
+        while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) ++pos;
+        if (pos + 6 <= text.size() && text.compare(pos, 6, "stored") == 0) {
+            pos += 6;
+            while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) ++pos;
+        }
+        if (pos >= text.size() || text[pos] != '(') {
+            ++candidate;
+            continue;
+        }
+
+        std::size_t firstOpen = pos;
+        std::size_t firstClose = findMatchingDelimiter(text, firstOpen);
+        if (firstClose == std::string::npos || firstClose + 1 >= text.size()) {
+            ++candidate;
+            continue;
+        }
+
+        std::size_t bodyCursor = firstClose + 1;
+        while (bodyCursor < text.size() && std::isspace(static_cast<unsigned char>(text[bodyCursor]))) ++bodyCursor;
+        if (bodyCursor >= text.size() || text[bodyCursor] != '(') {
+            ++candidate;
+            continue;
+        }
+
+        std::size_t secondOpen = bodyCursor;
+        std::size_t secondClose = findMatchingDelimiter(text, secondOpen);
+        if (secondClose == std::string::npos) {
+            ++candidate;
+            continue;
+        }
+
+        std::string params = text.substr(firstOpen + 1, firstClose - firstOpen - 1);
+        std::string body = text.substr(secondOpen + 1, secondClose - secondOpen - 1);
+        std::string prefix = text.substr(0, candidate);
+        std::string suffix = text.substr(secondClose + 1);
+        std::string name = "__anonymous_" + std::to_string(nextAnonymousFunctionId());
+
+        std::vector<SourceLine> result;
+        result.push_back(SourceLine{ line.indent, "func " + std::string((text.compare(pos, 6, "stored") == 0 || (pos + 6 <= text.size() && text.compare(pos, 6, "stored") == 0)) ? "stored " : "") + name + "(" + params + "):", line.number });
+
+        std::istringstream bodyStream(body);
+        std::string bodyLine;
+        while (std::getline(bodyStream, bodyLine)) {
+            std::string cleaned = trim(bodyLine);
+            if (!cleaned.empty()) result.push_back(SourceLine{ line.indent + 4, cleaned, line.number });
+        }
+
+        std::string trimmedPrefix = trim(prefix);
+        std::string trimmedSuffix = trim(suffix);
+        if (!trimmedPrefix.empty() && trimmedPrefix.find('=') != std::string::npos && trimmedSuffix.empty()) {
+            std::size_t eq = trimmedPrefix.find('=');
+            std::string lhs = trim(trimmedPrefix.substr(0, eq));
+            if (!lhs.empty()) result.push_back(SourceLine{ line.indent, lhs + " = " + name, line.number });
+            return result;
+        }
+
+        if (trimmedPrefix.empty() && trimmedSuffix.empty()) {
+            result.push_back(SourceLine{ line.indent, name, line.number });
+            return result;
+        }
+
+        result.push_back(SourceLine{ line.indent, prefix + name + suffix, line.number });
+        return result;
+    }
+    return std::vector<SourceLine>{ line };
+}
+} // namespace
+
 class ProgramParser {
 public:
     std::vector<SourceLine> lines;
@@ -309,6 +516,13 @@ public:
             SourceLine item = { logicalIndent, logical, logicalLine };
             lines.push_back(item);
         }
+
+        std::vector<SourceLine> expanded;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            std::vector<SourceLine> transformed = expandAnonymousFunctions(lines[i]);
+            expanded.insert(expanded.end(), transformed.begin(), transformed.end());
+        }
+        lines.swap(expanded);
     }
 
     ASTNode expression(const std::string& text) {
@@ -320,9 +534,11 @@ public:
         std::vector<ASTNode> result;
         while (index < lines.size() && lines[index].indent >= indent) {
             if (lines[index].indent > indent) throw std::runtime_error("Unexpected indentation at line " + std::to_string(lines[index].number));
-            std::string text = lines[index++].text;
+            SourceLine sourceLine = lines[index++];
+            std::string text = sourceLine.text;
             if (text.compare(0, 4, "func") == 0 && text.size() > 4 && std::isspace(static_cast<unsigned char>(text[4]))) {
                 ASTNode fn(ASTNode::FunctionDefinition);
+                fn.line = sourceLine.number; fn.sourceText = sourceLine.text;
                 std::string signature = trim(text.substr(4));
                 if (signature.compare(0, 7, "stored ") == 0) { fn.stored = true; signature = trim(signature.substr(7)); }
                 std::size_t open = signature.find('('), close = signature.rfind(')');
@@ -347,11 +563,13 @@ public:
             }
             if (text.compare(0, 5, "type ") == 0 && !text.empty() && text[text.size() - 1] == ':') {
                 ASTNode type(ASTNode::TypeDefinition, trim(text.substr(5, text.size() - 6)));
+                type.line = sourceLine.number; type.sourceText = sourceLine.text;
                 if (index < lines.size() && lines[index].indent > indent) type.body = block(lines[index].indent);
                 result.push_back(type); continue;
             }
             if (text == "please:") {
                 ASTNode blockNode(ASTNode::Please);
+                blockNode.line = sourceLine.number; blockNode.sourceText = sourceLine.text;
                 if (index < lines.size() && lines[index].indent > indent) blockNode.body = block(lines[index].indent);
                 result.push_back(blockNode); continue;
             }
@@ -367,6 +585,7 @@ public:
             }
             if (text.compare(0, 3, "if ") == 0) {
                 ASTNode branch(ASTNode::If);
+                branch.line = sourceLine.number; branch.sourceText = sourceLine.text;
                 std::string condition = trim(text.substr(3));
                 if (!condition.empty() && condition[condition.size() - 1] == ':') condition.erase(condition.size() - 1);
                 ASTNode test = expression(condition);
@@ -391,11 +610,14 @@ public:
                 std::string condition = trim(text.substr(repeat ? 4 : 6));
                 if (!condition.empty() && condition.back() == ':') condition.pop_back();
                 ASTNode loop(repeat ? ASTNode::Repeat : ASTNode::While);
+                loop.line = sourceLine.number; loop.sourceText = sourceLine.text;
                 loop.children.push_back(expression(condition));
                 if (index < lines.size() && lines[index].indent > indent) loop.body = block(lines[index].indent);
                 result.push_back(loop); continue;
             }
-            result.push_back(statement(text));
+            ASTNode node = statement(text);
+            node.line = sourceLine.number; node.sourceText = sourceLine.text;
+            result.push_back(node);
         }
         return result;
     }
@@ -458,7 +680,6 @@ int compareUnsigned(const std::string& left, const std::string& right) {
     if (a == b) return 0;
     return a < b ? -1 : 1;
 }
-
 std::string addUnsigned(const std::string& left, const std::string& right) {
     std::string result; int carry = 0;
     int i = static_cast<int>(left.size()) - 1, j = static_cast<int>(right.size()) - 1;
@@ -618,6 +839,7 @@ BigNumber BigNumber::power(const BigNumber& base, const BigNumber& exponent) {
 }
 
 Value::Value() : kind(Nothing), number(0) {}
+Value::Value(Kind valueKind) : kind(valueKind), number(0) {}
 Value::Value(const BigNumber& value) : kind(Number), number(value) {}
 Value::Value(const std::string& value) : kind(String), number(0), string(value) {}
 Value::Value(const char* value) : kind(String), number(0), string(value) {}
@@ -630,6 +852,8 @@ Value::Value(const std::shared_ptr<FunctionValue>& method, const std::shared_ptr
 std::string Value::toString() const {
     if (kind == Nothing) return "nothing";
     if (kind == Number) return number.str();
+    if (kind == PositiveInfinity) return "inf";
+    if (kind == NegativeInfinity) return "-inf";
     if (kind == String) return string;
     if (kind == Function || kind == BoundMethod) return "<func " + function->name + ">";
     if (kind == Type) return "<type: " + typeValue->name + ">";
@@ -641,6 +865,7 @@ std::string Value::toString() const {
 bool Value::truthy() const {
     if (kind == Nothing) return false;
     if (kind == Number) return !number.isZero();
+    if (kind == PositiveInfinity || kind == NegativeInfinity) return true;
     if (kind == String) return !string.empty();
     if (kind == List) return !list.empty();
     return true;
@@ -657,13 +882,26 @@ class ContinueSignal {};
 
 Interpreter::Interpreter() {
     globals_["nothing"] = Value(); globals_["true"] = Value(BigNumber(1)); globals_["false"] = Value(BigNumber(0));
+    globals_["inf"] = Value(Value::PositiveInfinity);
+    globals_["nega_inf"] = Value(Value::NegativeInfinity);
     globals_["PI"] = Value(BigNumber("3.14159265358979323846264338327950288419716939937510"));
     globals_["E"] = Value(BigNumber("2.71828182845904523536028747135266249775724709369996"));
 }
 
+static bool endsWith(const std::string& value, const std::string& suffix) {
+    if (suffix.size() > value.size()) return false;
+    return value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 void Interpreter::runFile(const std::string& path) {
-    std::ifstream file(path.c_str(), std::ios::in | std::ios::binary);
-    if (!file) throw std::runtime_error("Cannot open source file: " + path);
+    // check file extension
+    std::vector<std::string> validFileExtensions = {".wcn", ".wn"};
+    bool isWanted = false;
+    for (auto extension: validFileExtensions) {
+        if (endsWith(path, extension)) { isWanted = true; break; }
+    }
+    if (!isWanted) throw std::runtime_error("Invalid file extension: " + path);
+    std::ifstream file(path.c_str(), std::ios::in | std::ios::binary);    if (!file) throw std::runtime_error("Cannot open source file: " + path);
     std::ostringstream contents; contents << file.rdbuf(); runSource(contents.str(), path);
 }
 void Interpreter::runSource(const std::string& source, const std::string& filename) {
@@ -783,6 +1021,8 @@ Value Interpreter::evaluate(const ASTNode& node) {
         if (owner.kind == Value::Type) {
             std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator method = owner.typeValue->methods.find(node.text);
             if (method != owner.typeValue->methods.end()) return Value(method->second);
+            std::map<std::string, Value>::const_iterator member = owner.typeValue->members.find(node.text);
+            if (member != owner.typeValue->members.end()) return member->second;
             throw std::runtime_error("Library " + owner.typeValue->name + " has no member '" + node.text + "'");
         }
         if (owner.kind != Value::Instance) throw std::runtime_error("Member access requires an instance");
@@ -836,6 +1076,11 @@ Value Interpreter::evaluate(const ASTNode& node) {
                     if (content.kind == Value::List) return Value("<type: ListType>");
                     return Value("<type: NothingType>");
                 }
+                if (command.string == "typeBase") {
+                    if (content.kind == Value::Instance) return Value(content.instance->type);
+                    if (content.kind == Value::Type) return content;
+                    throw std::runtime_error("typeBase expects an instance or type");
+                }
                 if (command.string == "lengthOf") {
                     if (content.kind == Value::List)
                         return Value(BigNumber(static_cast<long long>(content.list.size())));
@@ -871,6 +1116,25 @@ Value Interpreter::evaluate(const ASTNode& node) {
     if (node.text == "->") {
         const ASTNode& target = node.children[1];
         if (target.kind != ASTNode::Identifier) throw std::runtime_error("Conversion target must be a type name");
+        if (loadedTypes_.count(target.text)) {
+            Value targetType = lookup(target.text);
+            if (targetType.kind != Value::Type) throw std::runtime_error("Conversion target is not a type: '" + target.text + "'");
+            std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator converter = targetType.typeValue->methods.find("_convert");
+            if (converter == targetType.typeValue->methods.end())
+                throw std::runtime_error("Type " + target.text + " does not define '_convert'");
+
+            std::shared_ptr<InstanceValue> targetInstance(new InstanceValue());
+            targetInstance->type = targetType.typeValue;
+            std::vector<Value> args(1, left);
+            std::map<std::string, Value> named;
+            std::vector<VariableLocation> positionalReferences;
+            std::map<std::string, VariableLocation> namedReferences;
+            std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator setup = targetType.typeValue->methods.find("_setup");
+            if (setup != targetType.typeValue->methods.end())
+                invoke(setup->second, args, named, positionalReferences, namedReferences, targetInstance);
+            else if (!args.empty()) throw std::runtime_error("Type " + target.text + " takes no arguments");
+            return invoke(converter->second, args, named, positionalReferences, namedReferences, targetInstance);
+        }
         if (target.text == "NumberType") {
             if (left.kind == Value::Number) return left;
             try { return Value(BigNumber(left.toString())); }
@@ -882,20 +1146,18 @@ Value Interpreter::evaluate(const ASTNode& node) {
             std::vector<Value> values; values.push_back(left); return Value(values);
         }
         if (target.text == "NothingType") return Value();
-        if (target.text == "Vec2" && loadedTypes_.count(target.text) && left.kind == Value::Number) {
-            BigNumber normalized = BigNumber::power(BigNumber("0.5"), BigNumber("0.5"));
-            BigNumber component = left.number * normalized;
-            return Value("(" + component.str() + "," + component.str() + ")");
-        }
-        if (loadedTypes_.count(target.text)) return left;
         throw std::runtime_error("Undefined conversion type '" + target.text + "'");
     }
     if (node.text == "is" && node.children[1].kind == ASTNode::Identifier) {
         const std::string& type = node.children[1].text;
         bool matches = (type == "NothingType" && left.kind == Value::Nothing) ||
-                       (type == "NumberType" && left.kind == Value::Number) ||
+                       (type == "NumberType" && isNumericValue(left)) ||
                        (type == "StringType" && left.kind == Value::String) ||
                        (type == "ListType" && left.kind == Value::List);
+        if (!matches && loadedTypes_.count(type) && left.kind == Value::Instance) {
+            Value typeValue = lookup(type);
+            matches = typeValue.kind == Value::Type && left.instance->type == typeValue.typeValue;
+        }
         return Value(BigNumber(matches ? 1 : 0));
     }
     Value right = evaluate(node.children[1]);
@@ -930,11 +1192,12 @@ Value Interpreter::evaluate(const ASTNode& node) {
     if (node.text == "is") result = left.kind == right.kind;
     else if (node.text == "==") result = valuesEqual(left, right);
     else if (node.text == "!=") result = !valuesEqual(left, right);
-    else if (left.kind == Value::Number && right.kind == Value::Number) {
-        if (node.text == "<") result = left.number < right.number;
-        if (node.text == ">") result = left.number > right.number;
-        if (node.text == "<=") result = left.number <= right.number;
-        if (node.text == ">=") result = left.number >= right.number;
+    else if (isNumericValue(left) && isNumericValue(right)) {
+        int comparison = compareNumericValues(left, right);
+        if (node.text == "<") result = comparison < 0;
+        if (node.text == ">") result = comparison > 0;
+        if (node.text == "<=") result = comparison <= 0;
+        if (node.text == ">=") result = comparison >= 0;
     }
     return Value(BigNumber(result ? 1 : 0));
 }
@@ -1060,7 +1323,7 @@ Value Interpreter::callBuiltin(const std::string& name, const std::vector<Value>
 void Interpreter::execute(const ASTNode& node) {
     if (node.kind == ASTNode::Noop) return;
     if (node.kind == ASTNode::Import) {
-        std::string path = node.text;
+        std::string path = unquote(trim(node.text));
         bool builtinAlias = !path.empty() && path[0] == '@' && path.compare(0, 6, "@file:") != 0;
         if (path.compare(0, 6, "@file:") == 0) path = path.substr(6);
         if (builtinAlias) {
@@ -1102,8 +1365,9 @@ void Interpreter::execute(const ASTNode& node) {
             module->name = alias;
             module->isLibrary = true;
             for (std::map<std::string, Value>::const_iterator it = globals_.begin(); it != globals_.end(); ++it) {
-                if (previousNames.find(it->first) != previousNames.end() || it->second.kind != Value::Function) continue;
-                module->methods[it->first] = it->second.function;
+                if (previousNames.find(it->first) != previousNames.end()) continue;
+                if (it->second.kind == Value::Function) module->methods[it->first] = it->second.function;
+                else module->members[it->first] = it->second;
             }
             moduleNamespaces_[path] = module;
         }
@@ -1272,6 +1536,15 @@ void Interpreter::execute(const ASTNode& node) {
     if (node.kind == ASTNode::Break) throw BreakSignal();
     if (node.kind == ASTNode::Continue) throw ContinueSignal();
 }
-void Interpreter::executeBlock(const std::vector<ASTNode>& nodes) { for (std::size_t i = 0; i < nodes.size(); ++i) execute(nodes[i]); }
+void Interpreter::executeBlock(const std::vector<ASTNode>& nodes) {
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        try { execute(nodes[i]); }
+        catch (const ExecutionError&) { throw; }
+        catch (const std::exception& error) {
+            const std::string type = nodes[i].kind == ASTNode::Assert ? "AssertionError" : "RuntimeError";
+            throw ExecutionError(type, error.what(), filename_, nodes[i].line, nodes[i].sourceText);
+        }
+    }
+}
 
 } // namespace wanted

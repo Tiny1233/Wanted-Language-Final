@@ -21,8 +21,16 @@ int main(int argc, char** argv) {
 		}
 		interpreter.runFile(argv[1]);
 		return 0;
+	} catch (const wanted::ExecutionError& error) {
+		std::cerr << "Error:\n";
+		std::cerr << "Occured in line " << error.line << " of file \"" << error.filename << "\"\n";
+		if (!error.sourceText.empty()) std::cerr << "\t" << error.sourceText << '\n';
+		std::cerr << error.errorType << ": " << error.what() << '\n';
+		return 1;
 	} catch (const std::exception& error) {
-		std::cerr << "WantedError: " << error.what() << '\n';
+		std::cerr << "Error:\n";
+		std::cerr << "Occured in line 0 of file \"" << (argc > 1 ? argv[1] : "<input>") << "\"\n";
+		std::cerr << "RuntimeError: " << error.what() << '\n';
 		return 1;
 	}
 }

@@ -54,6 +54,8 @@ struct ASTNode {
 
 	Kind kind;
 	std::string text;
+	std::string sourceText;
+	int line;
 	std::vector<ASTNode> children;
 	std::vector<ASTNode> body;
 	std::vector<ASTNode> finalBody;
@@ -62,8 +64,9 @@ struct ASTNode {
 	std::vector<std::string> argumentNames;
 	bool stored;
 
-	explicit ASTNode(Kind nodeKind = Noop, const std::string& nodeText = "")
-		: kind(nodeKind), text(nodeText), stored(false) {}
+	explicit ASTNode(Kind nodeKind = Noop, const std::string& nodeText = "", int sourceLine = 0,
+		const std::string& source = "")
+		: kind(nodeKind), text(nodeText), sourceText(source), line(sourceLine), stored(false) {}
 };
 
 struct FunctionValue;
@@ -71,7 +74,7 @@ struct TypeValue;
 struct InstanceValue;
 
 struct Value {
-	enum Kind { Nothing, Number, String, List, Function, Type, Instance, BoundMethod };
+	enum Kind { Nothing, Number, PositiveInfinity, NegativeInfinity, String, List, Function, Type, Instance, BoundMethod };
 	Kind kind;
 	BigNumber number;
 	std::string string;
@@ -81,6 +84,7 @@ struct Value {
 	std::shared_ptr<InstanceValue> instance;
 
 	Value();
+	explicit Value(Kind valueKind);
 	explicit Value(const BigNumber& value);
 	explicit Value(const std::string& value);
 	explicit Value(const char* value);
@@ -107,6 +111,7 @@ struct FunctionValue {
 struct TypeValue {
 	std::string name;
 	std::map< std::string, std::shared_ptr<FunctionValue> > methods;
+	std::map<std::string, Value> members;
 	bool isLibrary;
 	TypeValue() : isLibrary(false) {}
 };

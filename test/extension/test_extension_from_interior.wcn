@@ -1,0 +1,7 @@
+ext @builtin.wcn = bus
+
+bus.out('Literal\n')
+
+ext @math.wcn = nothing
+
+bus.out(PI)

@@ -1,0 +1,26 @@
+ext @builtin.wcn = bn
+
+type Finder:
+    func _setup(base: ListType = {}):
+        my._base = base
+
+    func min():
+        my.val = inf # infinity
+        idx = 0
+        rep bn.len(my._base):
+            if my._base[idx] < my.val:
+                my.val = my._base[idx]
+            idx += 1
+        return my.val 
+
+    func max():
+        my.val = nega_inf # negative infinity
+        idx = 0
+        rep bn.len(my._base):
+            if my._base[idx] > my.val:
+                my.val = my._base[idx]
+            idx += 1
+        return my.val 
+
+
+        

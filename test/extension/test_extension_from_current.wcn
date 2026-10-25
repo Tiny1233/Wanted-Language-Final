@@ -1,0 +1,4 @@
+ext 'support/snums.wcn'
+
+assert snums.s == 100
+assert snums.tester(5) == 6

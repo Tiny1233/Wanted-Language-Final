@@ -1,0 +1,17 @@
+ext @builtin.wcn = nothing
+
+type Person:
+    func _setup(name = 'Tom', age = 1):
+        my.n = name
+        my.age = age
+
+    func get_info():
+        return $'{my.n} is {my.age}.'
+
+eric = Person('Eric', 12)
+
+assert eric is Person
+
+assert eric != Person()
+
+assert eric.get_info() == 'Eric is 12.'

@@ -1,0 +1,7 @@
+ext @builtin.wcn = nothing
+res = func()( return 114 )
+assert res() == 114
+res2 = func(a)( return a + 1 )
+assert res2(9) == 10
+val = [func()( return 7 )]
+assert val[0]() == 7

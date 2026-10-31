@@ -1,0 +1,6 @@
+func foo(a):
+    if a:
+        x = 1
+    else:
+        x = 2
+assert foo(1) == nothing

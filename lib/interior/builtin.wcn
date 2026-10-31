@@ -214,8 +214,8 @@ func assertion(cond, re = 0):
 
 
 
-set_wdbg(_wcore_wdbg_status)
-set_rt(_wcore_rt_on)
+# set_wdbg(_wcore_wdbg_status)
+# set_rt(_wcore_rt_on)
 
 
 

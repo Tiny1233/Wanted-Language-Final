@@ -1,6 +1,6 @@
 # Wanted
 
-Wanted is an interpreted programming language. Its primary interpreter is implemented in C++; this repository also includes a Python implementation and supporting tools. It contains the runtime, bundled libraries, example programs, and language tests.
+Wanted is an interpreted programming language. Its primary interpreter is implemented in C++; this repository also includes a legacy Python implementation and supporting tools. It contains the runtime, bundled libraries, example programs, and language tests.
 
 ## Features
 
@@ -87,6 +87,8 @@ python wper.py test.wcn
 ```
 
 The generated executable is written alongside the input source file.
+We will soon add compiler of Wanted, which is based on LLVM, for a quicker performance and advanced functions.
+
 
 ## Contributing
 

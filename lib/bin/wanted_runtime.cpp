@@ -12,6 +12,7 @@
 
 namespace wanted {
 namespace {
+struct SourceLine;
 // basic utilities for the interpreter
 // tokens
 typedef std::vector<std::string> Tokens;
@@ -149,6 +150,69 @@ std::string stripComment(const std::string& line) {
         else if (ch == '#') return line.substr(0, i);
     }
     return line;
+}
+
+std::size_t findTopLevelColon(const std::string& text) {
+    int depth = 0;
+    char quote = 0;
+    bool escape = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        char ch = text[i];
+        if (quote) {
+            if (escape) escape = false;
+            else if (ch == '\\') escape = true;
+            else if (ch == quote) quote = 0;
+            continue;
+        }
+        if (ch == '\'' || ch == '"') { quote = ch; continue; }
+        if (ch == '(' || ch == '[' || ch == '{') ++depth;
+        else if (ch == ')' || ch == ']' || ch == '}') --depth;
+        else if (depth == 0 && ch == ':') return i;
+    }
+    return std::string::npos;
+}
+
+bool isBlockHeader(const std::string& text) {
+    std::string trimmed = trim(text);
+    if (trimmed.empty()) return false;
+    if (trimmed == "else:" || trimmed == "please:" || trimmed == "final:") return true;
+    return trimmed.compare(0, 4, "if ") == 0 || trimmed.compare(0, 5, "eif ") == 0 ||
+           trimmed.compare(0, 4, "rep ") == 0 || trimmed.compare(0, 6, "while ") == 0 ||
+           trimmed.compare(0, 6, "func ") == 0 || trimmed.compare(0, 5, "type ") == 0;
+}
+
+std::vector<std::string> splitInlineBlockLine(const std::string& line) {
+    std::string text = trim(line);
+    if (text.empty()) return {};
+    char quote = 0;
+    bool escape = false;
+    for (std::size_t i = 0; i + 1 < text.size(); ++i) {
+        char ch = text[i];
+        if (quote) {
+            if (escape) escape = false;
+            else if (ch == '\\') escape = true;
+            else if (ch == quote) quote = 0;
+            continue;
+        }
+        if (ch == '\'' || ch == '"') { quote = ch; continue; }
+        if (ch == '#' && text[i + 1] == ':') {
+            std::string before = trim(text.substr(0, i));
+            std::string after = trim(text.substr(i + 2));
+            if (before.empty()) return { trim(stripComment(line)) };
+            std::string header = before;
+            std::size_t colon = findTopLevelColon(before);
+            if (colon == std::string::npos) return { trim(stripComment(line)) };
+            std::string beforeColon = trim(before.substr(0, colon + 1));
+            if (!isBlockHeader(beforeColon)) return { trim(stripComment(line)) };
+            std::string body = trim(before.substr(colon + 1));
+            if (!after.empty()) body = body.empty() ? after : body + " " + after;
+            if (body.empty()) return { beforeColon };
+            return { beforeColon, body };
+        }
+    }
+    std::string cleaned = trim(stripComment(line));
+    if (cleaned.empty()) return {};
+    return { cleaned };
 }
 
 // count indent
@@ -492,24 +556,34 @@ public:
         std::string logical; int logicalIndent = 0, logicalLine = 0, nesting = 0;
         char quote = 0; bool escape = false;
         while (std::getline(input, line)) {
-            ++number; line = stripComment(line);
-            if (trim(line).empty()) continue;
-            if (logical.empty()) { logicalIndent = indentation(line); logicalLine = number; }
-            else logical += " ";
-            logical += trim(line);
-            for (std::size_t i = 0; i < line.size(); ++i) {
-                char ch = line[i];
-                if (quote) {
-                    if (escape) escape = false;
-                    else if (ch == '\\') escape = true;
-                    else if (ch == quote) quote = 0;
-                } else if (ch == '\'' || ch == '"') quote = ch;
-                else if (ch == '(' || ch == '[' || ch == '{') ++nesting;
-                else if (ch == ')' || ch == ']' || ch == '}') --nesting;
+            ++number;
+            std::vector<std::string> chunks = splitInlineBlockLine(line);
+            if (chunks.size() > 1) {
+                lines.push_back(SourceLine{ indentation(line), chunks[0], number });
+                lines.push_back(SourceLine{ indentation(line) + 4, chunks[1], number });
+                continue;
             }
-            if (nesting <= 0 && !quote) {
-                SourceLine item = { logicalIndent, logical, logicalLine };
-                lines.push_back(item); logical.clear(); nesting = 0;
+            for (std::size_t c = 0; c < chunks.size(); ++c) {
+                std::string current = chunks[c];
+                if (trim(current).empty()) continue;
+                if (logical.empty()) { logicalIndent = indentation(line); logicalLine = number; }
+                else logical += " ";
+                logical += trim(current);
+                for (std::size_t i = 0; i < current.size(); ++i) {
+                    char ch = current[i];
+                    if (quote) {
+                        if (escape) escape = false;
+                        else if (ch == '\\') escape = true;
+                        else if (ch == quote) quote = 0;
+                    } else if (ch == '\'' || ch == '"') quote = ch;
+                    else if (ch == '(' || ch == '[' || ch == '{') ++nesting;
+                    else if (ch == ')' || ch == ']' || ch == '}') --nesting;
+                }
+                if (nesting <= 0 && !quote) {
+                    SourceLine item = { logicalIndent, logical, logicalLine };
+                    lines.push_back(item);
+                    logical.clear(); nesting = 0;
+                }
             }
         }
         if (!logical.empty()) {
@@ -1325,7 +1399,7 @@ void Interpreter::execute(const ASTNode& node) {
     if (node.kind == ASTNode::Import) {
         std::string path = unquote(trim(node.text));
         bool builtinAlias = !path.empty() && path[0] == '@' && path.compare(0, 6, "@file:") != 0;
-        if (path.compare(0, 6, "@file:") == 0) path = path.substr(6);
+        if (path.compare(0, 6, "@file:") == 0) path = trim(path.substr(6));
         if (builtinAlias) {
             std::string modulePath = "lib/interior/" + path.substr(1);
             std::string directory = pathDirectory(filename_);

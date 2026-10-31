@@ -1,0 +1,8 @@
+ext './support/consts.wcn' = cs
+ext @builtin.wcn = nothing
+
+count = 0
+rep cs._n: count += 1 #:
+
+assert count == 5
+

@@ -1,0 +1,3 @@
+func set_wdbg(on_or_off):
+    if on_or_off:
+        x = 1

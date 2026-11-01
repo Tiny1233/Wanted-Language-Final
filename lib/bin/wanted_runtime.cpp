@@ -286,7 +286,7 @@ Tokens tokenize(const std::string& input) {
 
             // 2 chars
             std::string pair = input.substr(i, 2);
-            if (pair == "//" || pair == "->" || pair == "==" || pair == "!=" || pair == ">=" || pair == "<=" ||
+            if (pair == "//" || pair == "->" || pair == "==" || pair == "!=" || pair == ">=" || pair == "<=" || pair == "=>" ||
                 pair == "+=" || pair == "-=" || pair == "*=" || pair == "/=" || pair == "^=") {
                 result.push_back(pair); i += 2; continue;
             }
@@ -685,7 +685,24 @@ public:
                 if (!condition.empty() && condition.back() == ':') condition.pop_back();
                 ASTNode loop(repeat ? ASTNode::Repeat : ASTNode::While);
                 loop.line = sourceLine.number; loop.sourceText = sourceLine.text;
-                loop.children.push_back(expression(condition));
+                const Tokens loopTokens = repeat ? tokenize(condition) : Tokens();
+                Tokens::const_iterator arrow = std::find(loopTokens.begin(), loopTokens.end(), "=>");
+                if (arrow != loopTokens.end()) {
+                    if (arrow != loopTokens.begin() + 1 || loopTokens.size() < 3)
+                        throw std::runtime_error("List repeat syntax must be 'rep variable => list:'");
+                    const std::string& variable = loopTokens[0];
+                    if (variable.empty() || !(std::isalpha(static_cast<unsigned char>(variable[0])) || variable[0] == '_') ||
+                        !std::all_of(variable.begin(), variable.end(), [](char ch) {
+                            return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
+                        }))
+                        throw std::runtime_error("List repeat variable must be an identifier");
+                    Tokens listTokens(arrow + 1, loopTokens.end());
+                    ExpressionParser parser(listTokens);
+                    loop.text = variable;
+                    loop.children.push_back(parser.parse());
+                } else {
+                    loop.children.push_back(expression(condition));
+                }
                 if (index < lines.size() && lines[index].indent > indent) loop.body = block(lines[index].indent);
                 result.push_back(loop); continue;
             }
@@ -1378,7 +1395,11 @@ Value Interpreter::callBuiltin(const std::string& name, const std::vector<Value>
         return Value(BigNumber(args[0].kind == Value::List ? static_cast<long long>(args[0].list.size()) : static_cast<long long>(args[0].string.size())));
     }
     if (name == "str") return Value(args.empty() ? "" : args[0].toString());
-    if (name == "num" || name == "int") return args.empty() ? Value(BigNumber(0)) : Value(name == "int" ? args[0].number.truncated() : args[0].number);
+    if (name == "num" || name == "int") {
+        if (args.empty()) return Value(BigNumber(0));
+        BigNumber number = args[0].kind == Value::String ? BigNumber(args[0].string) : args[0].number;
+        return Value(name == "int" ? number.truncated() : number);
+    }
     if (name == "abs") return args.empty() ? Value(BigNumber(0)) : Value(args[0].number < BigNumber(0) ? -args[0].number : args[0].number);
     if (name == "floor" || name == "ceil" || name == "round") {
         if (args.empty()) return Value(BigNumber(0));
@@ -1576,8 +1597,20 @@ void Interpreter::execute(const ASTNode& node) {
         return;
     }
     if (node.kind == ASTNode::Repeat) {
-        long long count = evaluate(node.children[0]).number.toLongLong();
         bool broken = false;
+        if (!node.text.empty()) {
+            Value collection = evaluate(node.children[0]);
+            if (collection.kind != Value::List) throw std::runtime_error("List repeat expects a list");
+            for (std::size_t i = 0; i < collection.list.size(); ++i) {
+                assign(node.text, collection.list[i]);
+                try { executeBlock(node.body); }
+                catch (const ContinueSignal&) { continue; }
+                catch (const BreakSignal&) { broken = true; break; }
+            }
+            if (!broken) executeBlock(node.finalBody);
+            return;
+        }
+        long long count = evaluate(node.children[0]).number.toLongLong();
         for (long long i = 0; i < count; ++i) {
             try { executeBlock(node.body); }
             catch (const ContinueSignal&) { continue; }

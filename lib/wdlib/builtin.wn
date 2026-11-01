@@ -211,6 +211,14 @@ abstract func assertion(cond: BooleanType, re : any = 0):
     # @return 0
     ...
 
+abstract func ints(from = false, to = false, step = 1):
+    # @brief Generate list from a value to another with a given step.
+    # @param from: From which to generate. If 'to' isn't assigned, generate from 0 to this.
+    # @param to: To which (not included).
+    # @param step: The substraction between each element of this list.
+    # @return The list
+    ...
+
 # It turns off debugger automatically, and you can turn on by calling the function.
 set_wdbg(_wcore_wdbg_status)
 set_rt(_wcore_rt_on)

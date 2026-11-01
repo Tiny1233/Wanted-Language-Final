@@ -1,2 +1,6 @@
 ext @builtin.wcn
-out(a)
+
+
+a = input()
+a = int(a)
+outln(a)

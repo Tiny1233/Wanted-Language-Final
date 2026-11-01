@@ -1,0 +1,8 @@
+ext @builtin.wcn = nothing
+
+sum = 0
+rep i => ints(0, 101):
+    sum += i
+
+outln(sum)
+assert sum == 5050

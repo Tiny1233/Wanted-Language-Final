@@ -40,6 +40,7 @@ func _wcore_rt(subcontent):
 
 func out(cont):
     _wcore_stdout(cont)
+    return cont
 
 func outs(cont, sep = '\n'):
 
@@ -47,10 +48,12 @@ func outs(cont, sep = '\n'):
  
     out(pcont)
     out(sep)
+    return cont
   
 func outln(cont):
     _wcore_stdout(cont)
     _wcore_stdout('\n')
+    return (cont)
 
 func input(prompt):
     res = (getwcore 'stdin' prompt)
@@ -64,7 +67,7 @@ func int(sth):
     # there is more int function in math.wcn
     # also math.float_to_int but more stable.
 
-    return (0 + sth) // 1 # 0 + sth returns number and use // 1 to convert
+    return ((0 + sth) // 1) # 0 + sth returns number and use // 1 to convert
 
 # Type identify
 func is_nothing(what):
@@ -212,6 +215,18 @@ func assertion(cond, re = 0):
 
     assert cond
 
+func ints(from = false, to = false, step = 1):
+    # reverse to and from
+    if !to:
+        to = from
+        from = 0
+    # generate list
+    res = {}
+    cur = from
+    while cur < to:
+        res += cur
+        cur += step
+    return res
 
 
 # set_wdbg(_wcore_wdbg_status)

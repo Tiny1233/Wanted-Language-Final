@@ -1,0 +1,17 @@
+items = {2, 0, 3, 3}
+total = 0
+count = 0
+rep item => items:
+    count += 1
+    if item == 0:
+        continue
+    total += item
+
+assert count == 4
+assert total == 8
+
+empty_count = 0
+rep item => {}:
+    empty_count += 1
+
+assert empty_count == 0

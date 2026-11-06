@@ -1088,6 +1088,21 @@ void Interpreter::writeLocation(const VariableLocation& original, const Value& v
     throw std::runtime_error("Circular variable reference involving '" + original.name + "'");
 }
 
+std::string Interpreter::stringify(const Value& value) {
+    if (value.kind == Value::Instance) {
+        std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator converter =
+            value.instance->type->methods.find("_to_str");
+        if (converter != value.instance->type->methods.end()) {
+            std::vector<Value> args;
+            std::map<std::string, Value> named;
+            std::vector<VariableLocation> positionalReferences;
+            std::map<std::string, VariableLocation> namedReferences;
+            return invoke(converter->second, args, named, positionalReferences, namedReferences, value.instance).toString();
+        }
+    }
+    return value.toString();
+}
+
 Value Interpreter::evaluate(const ASTNode& node) {
     if (node.kind == ASTNode::Number) return Value(BigNumber(node.text));
     if (node.kind == ASTNode::String) return Value(node.text);
@@ -1195,6 +1210,10 @@ Value Interpreter::evaluate(const ASTNode& node) {
             if (name == "out" || name == "outln" || name == "outs" || name == "len" || name == "str" ||
                 name == "num" || name == "int" || name == "abs" || name == "floor" || name == "ceil" ||
                 name == "round" || name == "input" || name == "fac" || name == "factorial") {
+                bool isDefined = globals_.find(name) != globals_.end();
+                for (std::size_t i = 0; !isDefined && i < scopes_.size(); ++i)
+                    isDefined = scopes_[i].find(name) != scopes_[i].end();
+                if (isDefined) return call(lookup(name), node);
                 std::vector<Value> args;
                 for (std::size_t i = 1; i < node.children.size(); ++i) args.push_back(evaluate(node.children[i]));
                 return callBuiltin(name, args);
@@ -1253,10 +1272,10 @@ Value Interpreter::evaluate(const ASTNode& node) {
     }
     Value right = evaluate(node.children[1]);
     if (node.text == "+") {
-        if (left.kind == Value::String) return Value(left.toString() + right.toString());
+        if (left.kind == Value::String) return Value(stringify(left) + stringify(right));
         if (left.kind == Value::Number && right.kind == Value::String) {
             try { return Value(left.number + BigNumber(right.string)); }
-            catch (const std::exception&) { return Value(left.toString() + right.toString()); }
+            catch (const std::exception&) { return Value(stringify(left) + stringify(right)); }
         }
         if (left.kind == Value::List) { std::vector<Value> values = left.list; if (right.kind == Value::List) values.insert(values.end(), right.list.begin(), right.list.end()); else values.push_back(right); return Value(values); }
         return Value(left.number + right.number);
@@ -1549,10 +1568,10 @@ void Interpreter::execute(const ASTNode& node) {
         Value old = lookup(targetName); Value rhs = evaluate(node.children[0]);
         const std::string& op = node.argumentNames[0];
         if (op == "+") {
-            if (old.kind == Value::String) assign(targetName, Value(old.toString() + rhs.toString()));
+            if (old.kind == Value::String) assign(targetName, Value(stringify(old) + stringify(rhs)));
             else if (old.kind == Value::Number && rhs.kind == Value::String) {
                 try { assign(targetName, Value(old.number + BigNumber(rhs.string))); }
-                catch (const std::exception&) { assign(targetName, Value(old.toString() + rhs.toString())); }
+                catch (const std::exception&) { assign(targetName, Value(stringify(old) + stringify(rhs))); }
             } else if (old.kind == Value::List) {
                 std::vector<Value> values = old.list;
                 if (rhs.kind == Value::List) values.insert(values.end(), rhs.list.begin(), rhs.list.end());
@@ -1579,12 +1598,7 @@ void Interpreter::execute(const ASTNode& node) {
     }
     if (node.kind == ASTNode::Expression) {
         const ASTNode& expr = node.children[0];
-        if (expr.kind == ASTNode::Call && expr.children.size() && expr.children[0].kind == ASTNode::Identifier) {
-            std::string name = expr.children[0].text;
-            if (name == "out" || name == "outln" || name == "outs" || name == "len" || name == "str" || name == "num" || name == "int" || name == "abs" || name == "floor" || name == "ceil" || name == "round" || name == "input" || name == "fac" || name == "factorial") {
-                std::vector<Value> args; for (std::size_t i = 1; i < expr.children.size(); ++i) args.push_back(evaluate(expr.children[i])); callBuiltin(name, args); return;
-            }
-        }
+        // do not need to call preset builtin, call the read function directly.
         evaluate(expr); return;
     }
     if (node.kind == ASTNode::Return) throw ReturnSignal(node.children.empty() ? Value(BigNumber(0)) : evaluate(node.children[0]));

@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
 	} catch (const wanted::ExecutionError& error) {
 		std::cerr << "Error:\n";
 		std::cerr << "Occured in line " << error.line << " of file \"" << error.filename << "\"\n";
-		if (!error.sourceText.empty()) std::cerr << "\t" << error.sourceText << '\n';
+		if (!error.sourceText.empty()) std::cerr << "  " << error.line << " | " << error.sourceText << '\n';
 		std::cerr << error.errorType << ": " << error.what() << '\n';
 		return 1;
 	} catch (const std::exception& error) {

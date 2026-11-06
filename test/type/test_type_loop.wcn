@@ -1,0 +1,17 @@
+ext @builtin.wcn = bn
+
+type Demo:
+    func _setup(val: NumberType = 1):
+        my.value = val
+        my.res = val ^ 2
+
+    func run():
+        assert (my.value * my.value) == my.res
+        bn.outln(my.res)
+        return my.res
+
+ress = {Demo(5), Demo(10), Demo(15), Demo(150), Demo(114), Demo(-104), Demo(-91), Demo(18 * 8 - 1)}
+
+rep looper => ress:
+    a = looper.run()
+    outln(a ^ 0.5)

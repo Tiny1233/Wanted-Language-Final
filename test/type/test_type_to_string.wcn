@@ -1,0 +1,10 @@
+ext @builtin.wcn = nothing
+
+type Demo:
+    func _setup(val):
+        my.val = val
+
+    func _to_str():
+        return $':{my.val}:'
+
+assert outln(Demo(110)) == ':110:'

@@ -44,6 +44,7 @@ private:
     std::map<std::string, std::shared_ptr<TypeValue> > moduleNamespaces_;
     std::string filename_;
     Value evaluate(const ASTNode& node);
+    std::string stringify(const Value& value);
     void execute(const ASTNode& node);
     void executeBlock(const std::vector<ASTNode>& nodes);
     Value call(const Value& callable, const ASTNode& node);

@@ -1,0 +1,13 @@
+type Demo:
+    func _setup(val):
+        my.val = val
+
+    func _to_str():
+        return $':{my.val}:'
+
+assert ('' + Demo(110)) == ':110:'
+
+result = ''
+result += Demo(42)
+assert result == ':42:'
+

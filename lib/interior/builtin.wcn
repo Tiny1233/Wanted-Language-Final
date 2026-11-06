@@ -39,8 +39,9 @@ func _wcore_rt(subcontent):
 
 
 func out(cont):
-    _wcore_stdout(cont)
-    return cont
+    pcont = '' + cont
+    _wcore_stdout(pcont)
+    return pcont
 
 func outs(cont, sep = '\n'):
 
@@ -48,12 +49,13 @@ func outs(cont, sep = '\n'):
  
     out(pcont)
     out(sep)
-    return cont
+    return pcont
   
 func outln(cont):
-    _wcore_stdout(cont)
+    pcont = '' + cont
+    _wcore_stdout(pcont)
     _wcore_stdout('\n')
-    return (cont)
+    return pcont
 
 func input(prompt):
     res = (getwcore 'stdin' prompt)
@@ -231,7 +233,6 @@ func ints(from = false, to = false, step = 1):
 
 # set_wdbg(_wcore_wdbg_status)
 # set_rt(_wcore_rt_on)
-
 
 
 

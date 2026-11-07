@@ -1,6 +1,5 @@
-ext @builtin.wcn
+ext 'tmptest/tmp_err_func.wcn' = err
+ext @builtin.wcn = nothing
 
-
-a = input()
-a = int(a)
-outln(a)
+u = err.n(-2)
+outln(u)

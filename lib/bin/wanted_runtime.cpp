@@ -971,7 +971,7 @@ class ReturnSignal { public: Value value; explicit ReturnSignal(const Value& v) 
 class BreakSignal {};
 class ContinueSignal {};
 
-Interpreter::Interpreter() {
+Interpreter::Interpreter() : currentSourceLine_(0) {
     globals_["nothing"] = Value(); globals_["true"] = Value(BigNumber(1)); globals_["false"] = Value(BigNumber(0));
     globals_["inf"] = Value(Value::PositiveInfinity);
     globals_["nega_inf"] = Value(Value::NegativeInfinity);
@@ -1097,7 +1097,8 @@ std::string Interpreter::stringify(const Value& value) {
             std::map<std::string, Value> named;
             std::vector<VariableLocation> positionalReferences;
             std::map<std::string, VariableLocation> namedReferences;
-            return invoke(converter->second, args, named, positionalReferences, namedReferences, value.instance).toString();
+            ASTNode callNode(ASTNode::Noop, "", currentSourceLine_, currentSourceText_);
+            return invoke(converter->second, args, named, positionalReferences, namedReferences, callNode, value.instance).toString();
         }
     }
     return value.toString();
@@ -1239,11 +1240,16 @@ Value Interpreter::evaluate(const ASTNode& node) {
             std::map<std::string, Value> named;
             std::vector<VariableLocation> positionalReferences;
             std::map<std::string, VariableLocation> namedReferences;
+            ASTNode callNode = node;
+            if (callNode.line <= 0) {
+                callNode.line = currentSourceLine_;
+                callNode.sourceText = currentSourceText_;
+            }
             std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator setup = targetType.typeValue->methods.find("_setup");
             if (setup != targetType.typeValue->methods.end())
-                invoke(setup->second, args, named, positionalReferences, namedReferences, targetInstance);
+                invoke(setup->second, args, named, positionalReferences, namedReferences, callNode, targetInstance);
             else if (!args.empty()) throw std::runtime_error("Type " + target.text + " takes no arguments");
-            return invoke(converter->second, args, named, positionalReferences, namedReferences, targetInstance);
+            return invoke(converter->second, args, named, positionalReferences, namedReferences, callNode, targetInstance);
         }
         if (target.text == "NumberType") {
             if (left.kind == Value::Number) return left;
@@ -1313,6 +1319,11 @@ Value Interpreter::evaluate(const ASTNode& node) {
 }
 
 Value Interpreter::call(const Value& callable, const ASTNode& node) {
+    ASTNode callNode = node;
+    if (callNode.line <= 0) {
+        callNode.line = currentSourceLine_;
+        callNode.sourceText = currentSourceText_;
+    }
     std::vector<Value> args; std::map<std::string, Value> named;
     std::vector<VariableLocation> positionalReferences;
     std::map<std::string, VariableLocation> namedReferences;
@@ -1334,19 +1345,20 @@ Value Interpreter::call(const Value& callable, const ASTNode& node) {
         std::shared_ptr<InstanceValue> instance(new InstanceValue());
         instance->type = callable.typeValue;
         std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator setup = callable.typeValue->methods.find("_setup");
-        if (setup != callable.typeValue->methods.end()) invoke(setup->second, args, named, positionalReferences, namedReferences, instance);
+        if (setup != callable.typeValue->methods.end()) invoke(setup->second, args, named, positionalReferences, namedReferences, callNode, instance);
         else if (!args.empty()) throw std::runtime_error("Type " + callable.typeValue->name + " takes no arguments");
         return Value(instance);
     }
-    if (callable.kind == Value::BoundMethod) return invoke(callable.function, args, named, positionalReferences, namedReferences, callable.instance);
+    if (callable.kind == Value::BoundMethod) return invoke(callable.function, args, named, positionalReferences, namedReferences, callNode, callable.instance);
     if (callable.kind != Value::Function) throw std::runtime_error("Value is not callable: " + callable.toString());
-    return invoke(callable.function, args, named, positionalReferences, namedReferences);
+    return invoke(callable.function, args, named, positionalReferences, namedReferences, callNode);
 }
 
 Value Interpreter::invoke(const std::shared_ptr<FunctionValue>& function, const std::vector<Value>& args,
                           const std::map<std::string, Value>& named,
                           const std::vector<VariableLocation>& positionalReferences,
                           const std::map<std::string, VariableLocation>& namedReferences,
+                          const ASTNode& callNode,
                           const std::shared_ptr<InstanceValue>& owner) {
     std::map<std::string, Value> bindings;
     std::map<std::string, VariableLocation> bindingReferences;
@@ -1393,11 +1405,30 @@ Value Interpreter::invoke(const std::shared_ptr<FunctionValue>& function, const 
     scopes_.push_back(bindings);
     references_.push_back(bindingReferences);
     Value result(BigNumber(0));
+    const std::string callerFilename = filename_;
+    if (!function->filename.empty()) filename_ = function->filename;
     try { executeBlock(function->body); }
-    catch (const ReturnSignal& returned) { result = returned.value; }
-    catch (...) { references_.pop_back(); scopes_.pop_back(); throw; }
+    catch (const ReturnSignal& returned) {
+        result = returned.value;
+        filename_ = callerFilename;
+    }
+    catch (ExecutionError& error) {
+        error.traceFrames.push_back(ExecutionTraceFrame(function->name, function->filename, callerFilename,
+            function->sourceText, function->line, callNode.sourceText, callNode.line));
+        references_.pop_back();
+        scopes_.pop_back();
+        filename_ = callerFilename;
+        throw;
+    }
+    catch (...) {
+        references_.pop_back();
+        scopes_.pop_back();
+        filename_ = callerFilename;
+        throw;
+    }
     references_.pop_back();
     scopes_.pop_back();
+    filename_ = callerFilename;
     if (cacheable) function->cache[key] = result;
     return result;
 }
@@ -1492,7 +1523,7 @@ void Interpreter::execute(const ASTNode& node) {
         return;
     }
     if (node.kind == ASTNode::FunctionDefinition) {
-        std::shared_ptr<FunctionValue> fn(new FunctionValue()); fn->name = node.text; fn->parameters = node.parameters; fn->body = node.body; fn->stored = node.stored;
+        std::shared_ptr<FunctionValue> fn(new FunctionValue()); fn->name = node.text; fn->filename = filename_; fn->sourceText = node.sourceText; fn->line = node.line; fn->parameters = node.parameters; fn->body = node.body; fn->stored = node.stored;
         assign(node.text, Value(fn)); return;
     }
     if (node.kind == ASTNode::TypeDefinition) {
@@ -1502,6 +1533,9 @@ void Interpreter::execute(const ASTNode& node) {
             if (node.body[i].kind != ASTNode::FunctionDefinition) continue;
             std::shared_ptr<FunctionValue> method(new FunctionValue());
             method->name = node.text + "." + node.body[i].text;
+            method->filename = filename_;
+            method->sourceText = node.body[i].sourceText;
+            method->line = node.body[i].line;
             method->parameters = node.body[i].parameters;
             method->body = node.body[i].body;
             method->stored = node.body[i].stored;
@@ -1659,12 +1693,29 @@ void Interpreter::execute(const ASTNode& node) {
 }
 void Interpreter::executeBlock(const std::vector<ASTNode>& nodes) {
     for (std::size_t i = 0; i < nodes.size(); ++i) {
+        const int previousLine = currentSourceLine_;
+        const std::string previousSource = currentSourceText_;
+        currentSourceLine_ = nodes[i].line;
+        currentSourceText_ = nodes[i].sourceText;
         try { execute(nodes[i]); }
-        catch (const ExecutionError&) { throw; }
+        catch (const ExecutionError&) {
+            currentSourceLine_ = previousLine;
+            currentSourceText_ = previousSource;
+            throw;
+        }
         catch (const std::exception& error) {
             const std::string type = nodes[i].kind == ASTNode::Assert ? "AssertionError" : "RuntimeError";
+            currentSourceLine_ = previousLine;
+            currentSourceText_ = previousSource;
             throw ExecutionError(type, error.what(), filename_, nodes[i].line, nodes[i].sourceText);
         }
+        catch (...) {
+            currentSourceLine_ = previousLine;
+            currentSourceText_ = previousSource;
+            throw;
+        }
+        currentSourceLine_ = previousLine;
+        currentSourceText_ = previousSource;
     }
 }
 

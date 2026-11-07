@@ -100,12 +100,15 @@ struct Value {
 
 struct FunctionValue {
 	std::string name;
+	std::string filename;
+	std::string sourceText;
+	int line;
 	std::vector<std::pair<std::string, std::shared_ptr<ASTNode> > > parameters;
 	std::vector<ASTNode> body;
 	bool stored;
 	std::map<std::string, Value> cache;
 
-	FunctionValue() : stored(false) {}
+	FunctionValue() : line(0), stored(false) {}
 };
 
 struct TypeValue {

@@ -9,12 +9,30 @@
 
 namespace wanted {
 
+struct ExecutionTraceFrame {
+    std::string functionName;
+    std::string definitionFilename;
+    std::string callFilename;
+    std::string definitionSource;
+    std::string callSource;
+    int definitionLine;
+    int callLine;
+
+    ExecutionTraceFrame(const std::string& name, const std::string& definitionFile,
+        const std::string& callFile, const std::string& definition, int definitionNumber,
+        const std::string& call, int callNumber)
+        : functionName(name), definitionFilename(definitionFile), callFilename(callFile),
+          definitionSource(definition), callSource(call),
+          definitionLine(definitionNumber), callLine(callNumber) {}
+};
+
 class ExecutionError : public std::runtime_error {
 public:
     std::string errorType;
     std::string filename;
     std::string sourceText;
     int line;
+    std::vector<ExecutionTraceFrame> traceFrames;
 
     ExecutionError(const std::string& type, const std::string& message, const std::string& file,
         int sourceLine, const std::string& source)
@@ -43,6 +61,8 @@ private:
     std::set<std::string> loadedTypes_;
     std::map<std::string, std::shared_ptr<TypeValue> > moduleNamespaces_;
     std::string filename_;
+    int currentSourceLine_;
+    std::string currentSourceText_;
     Value evaluate(const ASTNode& node);
     std::string stringify(const Value& value);
     void execute(const ASTNode& node);
@@ -52,6 +72,7 @@ private:
                  const std::map<std::string, Value>& named,
                  const std::vector<VariableLocation>& positionalReferences,
                  const std::map<std::string, VariableLocation>& namedReferences,
+                 const ASTNode& callNode,
                  const std::shared_ptr<InstanceValue>& owner = std::shared_ptr<InstanceValue>());
     Value callBuiltin(const std::string& name, const std::vector<Value>& args);
     Value lookup(const std::string& name) const;

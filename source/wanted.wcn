@@ -1,0 +1,12 @@
+# Wanted bootstrapping interpreter
+ext './finalrun.wcn' = runner
+
+# TODO: system argv
+argv = nothing
+
+filename = (
+    nothing
+)
+
+func main():
+    runner.runFile(filename)

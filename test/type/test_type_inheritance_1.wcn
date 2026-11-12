@@ -1,0 +1,27 @@
+ext @builtin.wcn = nothing
+
+type A:
+    func _setup():
+        my.val = 0
+
+type B:
+    func _setup():
+        my.val = 1
+
+type C(A):
+    func _setup():
+        my.val = 2
+        my.p = my.parent # default: <type: A>
+
+a = A()
+b = B()
+c = C()
+
+assert a.val == 0
+assert b.val == 1
+assert c.val == 2
+assert a is A
+assert b is B
+assert c is C 
+assert c is A 
+assert (b is A) == false

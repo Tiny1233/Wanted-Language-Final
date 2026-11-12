@@ -1,0 +1,26 @@
+ext @builtin.wcn = nothing
+
+type Base:
+    func _setup(value):
+        my.value = value
+
+    func read():
+        return my.value
+
+type Child(Base):
+    func parent_type():
+        return my.parent
+
+type GrandChild(Child):
+
+child = Child(7)
+grandchild = GrandChild(9)
+
+assert child.value == 7
+assert child.read() == 7
+assert child.parent_type() is Base
+assert child is Child
+assert child is Base
+assert grandchild.value == 9
+assert grandchild.read() == 9
+assert grandchild is Base

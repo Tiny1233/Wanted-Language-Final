@@ -19,6 +19,16 @@ typedef std::vector<std::string> Tokens;
 // precision of division
 const int DIVISION_PRECISION = 100;
 
+std::shared_ptr<FunctionValue> findTypeMethod(const std::shared_ptr<TypeValue>& type,
+                                              const std::string& name) {
+    for (std::shared_ptr<TypeValue> current = type; current; current = current->parentType) {
+        std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator method =
+            current->methods.find(name);
+        if (method != current->methods.end()) return method->second;
+    }
+    return std::shared_ptr<FunctionValue>();
+}
+
 // judge if equal, LHS and RHS are both Value
 bool valuesEqual(const Value& left, const Value& right,
                  std::vector<std::pair<const InstanceValue*, const InstanceValue*> >& comparedInstances) {
@@ -636,7 +646,27 @@ public:
                 result.push_back(fn); continue;
             }
             if (text.compare(0, 5, "type ") == 0 && !text.empty() && text[text.size() - 1] == ':') {
-                ASTNode type(ASTNode::TypeDefinition, trim(text.substr(5, text.size() - 6)));
+                std::string declaration = trim(text.substr(5, text.size() - 6));
+                std::string typeName = declaration;
+                std::string parentType;
+                std::size_t open = declaration.find('(');
+                if (open != std::string::npos) {
+                    std::size_t close = declaration.rfind(')');
+                    if (close != declaration.size() - 1 || close < open ||
+                        declaration.find('(', open + 1) != std::string::npos ||
+                        declaration.find(')', close + 1) != std::string::npos)
+                        throw std::runtime_error("Invalid type definition: " + text);
+                    typeName = trim(declaration.substr(0, open));
+                    parentType = trim(declaration.substr(open + 1, close - open - 1));
+                    if (typeName.empty() || parentType.empty() ||
+                        typeName.find_first_of("()") != std::string::npos ||
+                        parentType.find_first_of("()") != std::string::npos)
+                        throw std::runtime_error("Invalid type definition: " + text);
+                } else if (declaration.find(')') != std::string::npos) {
+                    throw std::runtime_error("Invalid type definition: " + text);
+                }
+                ASTNode type(ASTNode::TypeDefinition, typeName);
+                type.parentType = parentType;
                 type.line = sourceLine.number; type.sourceText = sourceLine.text;
                 if (index < lines.size() && lines[index].indent > indent) type.body = block(lines[index].indent);
                 result.push_back(type); continue;
@@ -1090,15 +1120,14 @@ void Interpreter::writeLocation(const VariableLocation& original, const Value& v
 
 std::string Interpreter::stringify(const Value& value) {
     if (value.kind == Value::Instance) {
-        std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator converter =
-            value.instance->type->methods.find("_to_str");
-        if (converter != value.instance->type->methods.end()) {
+        std::shared_ptr<FunctionValue> converter = findTypeMethod(value.instance->type, "_to_str");
+        if (converter) {
             std::vector<Value> args;
             std::map<std::string, Value> named;
             std::vector<VariableLocation> positionalReferences;
             std::map<std::string, VariableLocation> namedReferences;
             ASTNode callNode(ASTNode::Noop, "", currentSourceLine_, currentSourceText_);
-            return invoke(converter->second, args, named, positionalReferences, namedReferences, callNode, value.instance).toString();
+            return invoke(converter, args, named, positionalReferences, namedReferences, callNode, value.instance).toString();
         }
     }
     return value.toString();
@@ -1135,8 +1164,10 @@ Value Interpreter::evaluate(const ASTNode& node) {
         if (owner.kind != Value::Instance) throw std::runtime_error("Member access requires an instance");
         std::map<std::string, Value>::const_iterator member = owner.instance->members.find(node.text);
         if (member != owner.instance->members.end()) return member->second;
-        std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator method = owner.instance->type->methods.find(node.text);
-        if (method != owner.instance->type->methods.end()) return Value(method->second, owner.instance);
+        if (node.text == "parent" && owner.instance->type->parentType)
+            return Value(owner.instance->type->parentType);
+        std::shared_ptr<FunctionValue> method = findTypeMethod(owner.instance->type, node.text);
+        if (method) return Value(method, owner.instance);
         throw std::runtime_error("Type " + owner.instance->type->name + " has no member '" + node.text + "'");
     }
     if (node.kind == ASTNode::Index) {
@@ -1230,8 +1261,8 @@ Value Interpreter::evaluate(const ASTNode& node) {
         if (loadedTypes_.count(target.text)) {
             Value targetType = lookup(target.text);
             if (targetType.kind != Value::Type) throw std::runtime_error("Conversion target is not a type: '" + target.text + "'");
-            std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator converter = targetType.typeValue->methods.find("_convert");
-            if (converter == targetType.typeValue->methods.end())
+            std::shared_ptr<FunctionValue> converter = findTypeMethod(targetType.typeValue, "_convert");
+            if (!converter)
                 throw std::runtime_error("Type " + target.text + " does not define '_convert'");
 
             std::shared_ptr<InstanceValue> targetInstance(new InstanceValue());
@@ -1245,11 +1276,11 @@ Value Interpreter::evaluate(const ASTNode& node) {
                 callNode.line = currentSourceLine_;
                 callNode.sourceText = currentSourceText_;
             }
-            std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator setup = targetType.typeValue->methods.find("_setup");
-            if (setup != targetType.typeValue->methods.end())
-                invoke(setup->second, args, named, positionalReferences, namedReferences, callNode, targetInstance);
+            std::shared_ptr<FunctionValue> setup = findTypeMethod(targetType.typeValue, "_setup");
+            if (setup)
+                invoke(setup, args, named, positionalReferences, namedReferences, callNode, targetInstance);
             else if (!args.empty()) throw std::runtime_error("Type " + target.text + " takes no arguments");
-            return invoke(converter->second, args, named, positionalReferences, namedReferences, callNode, targetInstance);
+            return invoke(converter, args, named, positionalReferences, namedReferences, callNode, targetInstance);
         }
         if (target.text == "NumberType") {
             if (left.kind == Value::Number) return left;
@@ -1270,9 +1301,20 @@ Value Interpreter::evaluate(const ASTNode& node) {
                        (type == "NumberType" && isNumericValue(left)) ||
                        (type == "StringType" && left.kind == Value::String) ||
                        (type == "ListType" && left.kind == Value::List);
+        if (!matches && loadedTypes_.count(type) && left.kind == Value::Type) {
+            Value typeValue = lookup(type);
+            matches = typeValue.kind == Value::Type && left.typeValue == typeValue.typeValue;
+        }
         if (!matches && loadedTypes_.count(type) && left.kind == Value::Instance) {
             Value typeValue = lookup(type);
-            matches = typeValue.kind == Value::Type && left.instance->type == typeValue.typeValue;
+            if (typeValue.kind == Value::Type) {
+                for (std::shared_ptr<TypeValue> current = left.instance->type; current; current = current->parentType) {
+                    if (current == typeValue.typeValue) {
+                        matches = true;
+                        break;
+                    }
+                }
+            }
         }
         return Value(BigNumber(matches ? 1 : 0));
     }
@@ -1344,8 +1386,8 @@ Value Interpreter::call(const Value& callable, const ASTNode& node) {
         if (callable.typeValue->isLibrary) throw std::runtime_error("Library " + callable.typeValue->name + " cannot be constructed");
         std::shared_ptr<InstanceValue> instance(new InstanceValue());
         instance->type = callable.typeValue;
-        std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator setup = callable.typeValue->methods.find("_setup");
-        if (setup != callable.typeValue->methods.end()) invoke(setup->second, args, named, positionalReferences, namedReferences, callNode, instance);
+        std::shared_ptr<FunctionValue> setup = findTypeMethod(callable.typeValue, "_setup");
+        if (setup) invoke(setup, args, named, positionalReferences, namedReferences, callNode, instance);
         else if (!args.empty()) throw std::runtime_error("Type " + callable.typeValue->name + " takes no arguments");
         return Value(instance);
     }
@@ -1529,6 +1571,12 @@ void Interpreter::execute(const ASTNode& node) {
     if (node.kind == ASTNode::TypeDefinition) {
         std::shared_ptr<TypeValue> type(new TypeValue());
         type->name = node.text;
+        if (!node.parentType.empty()) {
+            Value parent = lookup(node.parentType);
+            if (parent.kind != Value::Type || parent.typeValue->isLibrary)
+                throw std::runtime_error("Parent of type " + node.text + " must be a user-defined type");
+            type->parentType = parent.typeValue;
+        }
         for (std::size_t i = 0; i < node.body.size(); ++i) {
             if (node.body[i].kind != ASTNode::FunctionDefinition) continue;
             std::shared_ptr<FunctionValue> method(new FunctionValue());

@@ -7,6 +7,7 @@ Wanted is an interpreted programming language. Its primary interpreter is implem
 - Variables, aliases, and numeric and string values
 - Lists and nested list access
 - Functions with default and named arguments
+- Class inheritance with inherited methods and parent-type checks
 - Conditional branches and repeat/while loops
 - Arithmetic, comparison, and compound assignment operators
 - Built-in and external Wanted libraries
@@ -49,8 +50,18 @@ ext @builtin.wcn
 func add(a, b = 1):
     return a + b
 
+type Base:
+    func value():
+        return 1
+
+type Child(Base):
+    func parent_type():
+        return my.parent
+
 result = add(4)
 outln(result)
+outln(Child().value())
+outln(Child().parent_type())
 
 rep 3:
     outln('Wanted')

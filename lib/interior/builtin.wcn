@@ -51,6 +51,9 @@ func outs(cont, sep = '\n'):
     out(sep)
     return pcont
   
+func is_space(_str):
+    return _str == ' '
+
 func outln(cont):
     pcont = '' + cont
     _wcore_stdout(pcont)

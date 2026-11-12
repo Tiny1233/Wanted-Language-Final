@@ -1,0 +1,7 @@
+# ASTNode operation
+
+func runFile(fileName: StringType = ''):
+    if fileName:
+        ...
+    else:
+        ...

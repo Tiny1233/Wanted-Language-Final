@@ -1,0 +1,18 @@
+# Tokenizer
+
+ext @builtin.wcn = inl
+
+
+func tokenize(code):
+    _cd_length = inl.len(code)
+    _index = 0
+    rep _cd_length:
+        ch = code[_index]
+        if inl.is_space(ch):
+            _index += 1
+            continue
+
+        interpolated = code[_index] == '$' & _index + 1 < _cd_length & code[_index + 1] == '\''
+        if (interpolated | code[_index] == '\'') & _index + 1 < _cd_length:
+            ...
+            

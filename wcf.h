@@ -55,6 +55,7 @@ struct ASTNode {
 	Kind kind;
 	std::string text;
 	std::string sourceText;
+	std::string parentType;
 	int line;
 	std::vector<ASTNode> children;
 	std::vector<ASTNode> body;
@@ -66,7 +67,7 @@ struct ASTNode {
 
 	explicit ASTNode(Kind nodeKind = Noop, const std::string& nodeText = "", int sourceLine = 0,
 		const std::string& source = "")
-		: kind(nodeKind), text(nodeText), sourceText(source), line(sourceLine), stored(false) {}
+		: kind(nodeKind), text(nodeText), sourceText(source), parentType(), line(sourceLine), stored(false) {}
 };
 
 struct FunctionValue;
@@ -113,6 +114,7 @@ struct FunctionValue {
 
 struct TypeValue {
 	std::string name;
+	std::shared_ptr<TypeValue> parentType;
 	std::map< std::string, std::shared_ptr<FunctionValue> > methods;
 	std::map<std::string, Value> members;
 	bool isLibrary;

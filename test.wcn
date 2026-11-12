@@ -1,5 +1,4 @@
 ext 'tmptest/tmp_err_func.wcn' = err
 ext @builtin.wcn = nothing
 
-u = err.n(-2)
-outln(u)
+outln(6+1.5*(3^0.5))

@@ -1,0 +1,8 @@
+abstract answer = 42
+
+please:
+    answer = 7
+    assert false
+
+else:
+    assert answer == 42

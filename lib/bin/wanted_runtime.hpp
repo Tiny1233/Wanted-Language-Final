@@ -55,8 +55,10 @@ private:
 
     std::map<std::string, Value> globals_;
     std::map<std::string, VariableLocation> globalReferences_;
+    std::set<std::string> readOnlyGlobals_;
     std::vector<std::map<std::string, Value> > scopes_;
     std::vector<std::map<std::string, VariableLocation> > references_;
+    std::vector<std::set<std::string> > readOnlyScopes_;
     std::set<std::string> loadedModules_;
     std::set<std::string> loadedTypes_;
     std::map<std::string, std::shared_ptr<TypeValue> > moduleNamespaces_;

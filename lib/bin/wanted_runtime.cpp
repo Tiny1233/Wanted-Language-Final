@@ -645,8 +645,11 @@ public:
                 if (index < lines.size() && lines[index].indent > indent) fn.body = block(lines[index].indent);
                 result.push_back(fn); continue;
             }
-            if (text.compare(0, 5, "type ") == 0 && !text.empty() && text[text.size() - 1] == ':') {
-                std::string declaration = trim(text.substr(5, text.size() - 6));
+            const bool abstractType = text.compare(0, 14, "abstract type ") == 0;
+            if ((abstractType || text.compare(0, 5, "type ") == 0) &&
+                !text.empty() && text[text.size() - 1] == ':') {
+                const std::size_t prefixLength = abstractType ? 14 : 5;
+                std::string declaration = trim(text.substr(prefixLength, text.size() - prefixLength - 1));
                 std::string typeName = declaration;
                 std::string parentType;
                 std::size_t open = declaration.find('(');
@@ -667,6 +670,7 @@ public:
                 }
                 ASTNode type(ASTNode::TypeDefinition, typeName);
                 type.parentType = parentType;
+                type.isAbstract = abstractType;
                 type.line = sourceLine.number; type.sourceText = sourceLine.text;
                 if (index < lines.size() && lines[index].indent > indent) type.body = block(lines[index].indent);
                 result.push_back(type); continue;
@@ -675,6 +679,12 @@ public:
                 ASTNode blockNode(ASTNode::Please);
                 blockNode.line = sourceLine.number; blockNode.sourceText = sourceLine.text;
                 if (index < lines.size() && lines[index].indent > indent) blockNode.body = block(lines[index].indent);
+                if (index < lines.size() && lines[index].indent == indent && lines[index].text == "else:") {
+                    ++index;
+                    blockNode.hasHandler = true;
+                    if (index < lines.size() && lines[index].indent > indent)
+                        blockNode.handlerBody = block(lines[index].indent);
+                }
                 result.push_back(blockNode); continue;
             }
             if (text == "final:") {
@@ -744,6 +754,21 @@ public:
     }
 
     ASTNode statement(const std::string& text) {
+        if (text.compare(0, 9, "abstract ") == 0) {
+            Tokens tokens = tokenize(trim(text.substr(9)));
+            if (tokens.size() < 3 || tokens[1] != "=" ||
+                tokens[0].empty() ||
+                !(std::isalpha(static_cast<unsigned char>(tokens[0][0])) || tokens[0][0] == '_') ||
+                !std::all_of(tokens[0].begin(), tokens[0].end(), [](char ch) {
+                    return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
+                }))
+                throw std::runtime_error("Invalid abstract constant definition: " + text);
+            Tokens valueTokens(tokens.begin() + 2, tokens.end());
+            ExpressionParser parser(valueTokens);
+            ASTNode node(ASTNode::AbstractDefinition, tokens[0]);
+            node.children.push_back(parser.parse());
+            return node;
+        }
         if (text.compare(0, 4, "ext ") == 0) {
             ASTNode node(ASTNode::Import, trim(text.substr(4)));
             std::size_t alias = node.text.find('=');
@@ -1007,6 +1032,8 @@ Interpreter::Interpreter() : currentSourceLine_(0) {
     globals_["nega_inf"] = Value(Value::NegativeInfinity);
     globals_["PI"] = Value(BigNumber("3.14159265358979323846264338327950288419716939937510"));
     globals_["E"] = Value(BigNumber("2.71828182845904523536028747135266249775724709369996"));
+    readOnlyGlobals_.insert("PI");
+    readOnlyGlobals_.insert("E");
 }
 
 static bool endsWith(const std::string& value, const std::string& suffix) {
@@ -1039,6 +1066,8 @@ void Interpreter::assign(const std::string& name, const Value& value) {
             writeLocation(reference->second, value);
             return;
         }
+        if (readOnlyScopes_.back().find(name) != readOnlyScopes_.back().end())
+            throw std::runtime_error("Cannot modify abstract constant '" + name + "'");
         scopes_.back()[name] = value;
     } else {
         std::map<std::string, VariableLocation>::const_iterator reference = globalReferences_.find(name);
@@ -1046,6 +1075,8 @@ void Interpreter::assign(const std::string& name, const Value& value) {
             writeLocation(reference->second, value);
             return;
         }
+        if (readOnlyGlobals_.find(name) != readOnlyGlobals_.end())
+            throw std::runtime_error("Cannot modify abstract constant '" + name + "'");
         globals_[name] = value;
     }
 }
@@ -1111,6 +1142,11 @@ void Interpreter::writeLocation(const VariableLocation& original, const Value& v
             std::map<std::string, VariableLocation>::const_iterator reference = references_[location.scope].find(location.name);
             if (reference != references_[location.scope].end()) { location = reference->second; continue; }
         }
+        if ((location.scope < 0 && readOnlyGlobals_.find(location.name) != readOnlyGlobals_.end()) ||
+            (location.scope >= 0 &&
+             readOnlyScopes_[static_cast<std::size_t>(location.scope)].find(location.name) !=
+                 readOnlyScopes_[static_cast<std::size_t>(location.scope)].end()))
+            throw std::runtime_error("Cannot modify abstract constant '" + location.name + "'");
         if (location.scope < 0) globals_[location.name] = value;
         else scopes_[location.scope][location.name] = value;
         return;
@@ -1384,6 +1420,8 @@ Value Interpreter::call(const Value& callable, const ASTNode& node) {
     }
     if (callable.kind == Value::Type) {
         if (callable.typeValue->isLibrary) throw std::runtime_error("Library " + callable.typeValue->name + " cannot be constructed");
+        if (callable.typeValue->isAbstract)
+            throw std::runtime_error("Abstract type " + callable.typeValue->name + " cannot be instantiated");
         std::shared_ptr<InstanceValue> instance(new InstanceValue());
         instance->type = callable.typeValue;
         std::shared_ptr<FunctionValue> setup = findTypeMethod(callable.typeValue, "_setup");
@@ -1446,6 +1484,7 @@ Value Interpreter::invoke(const std::shared_ptr<FunctionValue>& function, const 
     if (owner) bindings["my"] = Value(owner);
     scopes_.push_back(bindings);
     references_.push_back(bindingReferences);
+    readOnlyScopes_.push_back(std::set<std::string>());
     Value result(BigNumber(0));
     const std::string callerFilename = filename_;
     if (!function->filename.empty()) filename_ = function->filename;
@@ -1459,17 +1498,20 @@ Value Interpreter::invoke(const std::shared_ptr<FunctionValue>& function, const 
             function->sourceText, function->line, callNode.sourceText, callNode.line));
         references_.pop_back();
         scopes_.pop_back();
+        readOnlyScopes_.pop_back();
         filename_ = callerFilename;
         throw;
     }
     catch (...) {
         references_.pop_back();
         scopes_.pop_back();
+        readOnlyScopes_.pop_back();
         filename_ = callerFilename;
         throw;
     }
     references_.pop_back();
     scopes_.pop_back();
+    readOnlyScopes_.pop_back();
     filename_ = callerFilename;
     if (cacheable) function->cache[key] = result;
     return result;
@@ -1571,6 +1613,7 @@ void Interpreter::execute(const ASTNode& node) {
     if (node.kind == ASTNode::TypeDefinition) {
         std::shared_ptr<TypeValue> type(new TypeValue());
         type->name = node.text;
+        type->isAbstract = node.isAbstract;
         if (!node.parentType.empty()) {
             Value parent = lookup(node.parentType);
             if (parent.kind != Value::Type || parent.typeValue->isLibrary)
@@ -1591,6 +1634,27 @@ void Interpreter::execute(const ASTNode& node) {
         }
         loadedTypes_.insert(node.text);
         assign(node.text, Value(type));
+        return;
+    }
+    if (node.kind == ASTNode::AbstractDefinition) {
+        Value constantValue = evaluate(node.children[0]);
+        if (!scopes_.empty()) {
+            if (scopes_.back().find(node.text) != scopes_.back().end())
+                throw std::runtime_error("Cannot redefine abstract constant '" + node.text + "'");
+            scopes_.back()[node.text] = constantValue;
+            readOnlyScopes_.back().insert(node.text);
+        } else {
+            std::map<std::string, Value>::const_iterator existing = globals_.find(node.text);
+            if (existing != globals_.end()) {
+                std::vector<std::pair<const InstanceValue*, const InstanceValue*> > comparedInstances;
+                if (readOnlyGlobals_.find(node.text) != readOnlyGlobals_.end() &&
+                    valuesEqual(existing->second, constantValue, comparedInstances))
+                    return;
+                throw std::runtime_error("Cannot redefine abstract constant '" + node.text + "'");
+            }
+            globals_[node.text] = constantValue;
+            readOnlyGlobals_.insert(node.text);
+        }
         return;
     }
     if (node.kind == ASTNode::Assignment) {
@@ -1729,6 +1793,20 @@ void Interpreter::execute(const ASTNode& node) {
     }
     if (node.kind == ASTNode::Please) {
         try { executeBlock(node.body); }
+        catch (const std::exception&) {
+            if (!node.hasHandler) {
+                executeBlock(node.finalBody);
+                throw;
+            }
+            try {
+                executeBlock(node.handlerBody);
+            } catch (...) {
+                executeBlock(node.finalBody);
+                throw;
+            }
+            executeBlock(node.finalBody);
+            return;
+        }
         catch (...) {
             executeBlock(node.finalBody);
             throw;

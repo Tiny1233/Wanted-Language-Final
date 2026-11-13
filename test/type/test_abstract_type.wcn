@@ -1,0 +1,18 @@
+abstract t = 1 # t is a abstract type, cant be modified or instantiated
+
+abstract type Demo: # cant be instantiated, but can be inherited
+    func _setup(x):
+        my.val = x
+
+type A(Demo):
+    func _setup(x):
+        my.parent._setup(x)
+
+please:
+    a = A(5)
+    assert a.val == 5
+    Demo(5) # should throw an error, since Demo is abstract
+    assert false
+
+else:
+    assert true

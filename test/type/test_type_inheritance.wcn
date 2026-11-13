@@ -1,0 +1,16 @@
+ext @builtin.wcn = nothing
+
+type A:
+    func _setup(x):
+        my.val = 0 + x
+
+type B:
+    func _setup(x):
+        my.val = 1 + x
+
+type C(A):
+    func _setup(x):
+        my.parent._setup(x)
+
+c = C(5)
+assert c.val == 5

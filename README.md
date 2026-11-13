@@ -8,6 +8,7 @@ Wanted is an interpreted programming language. Its primary interpreter is implem
 - Lists and nested list access
 - Functions with default and named arguments
 - Class inheritance with inherited methods and parent-type checks
+- Abstract classes that can be inherited but not instantiated
 - Conditional branches and repeat/while loops
 - Arithmetic, comparison, and compound assignment operators
 - Built-in and external Wanted libraries

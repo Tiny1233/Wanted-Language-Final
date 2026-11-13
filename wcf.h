@@ -48,7 +48,7 @@ struct ASTNode {
 	enum Kind {
 		Number, String, InterpolatedString, Identifier, List, Unary, Binary, Call,
 		Member, Index, Assignment, CompoundAssignment, Expression, Return,
-		FunctionDefinition, TypeDefinition, Import, If, Repeat, While,
+		FunctionDefinition, TypeDefinition, AbstractDefinition, Import, If, Repeat, While,
 		Break, Continue, Assert, Please, Noop
 	};
 
@@ -60,14 +60,18 @@ struct ASTNode {
 	std::vector<ASTNode> children;
 	std::vector<ASTNode> body;
 	std::vector<ASTNode> finalBody;
+	std::vector<ASTNode> handlerBody;
 	std::vector<std::pair<ASTNode, std::vector<ASTNode> > > branches;
 	std::vector<std::pair<std::string, std::shared_ptr<ASTNode> > > parameters;
 	std::vector<std::string> argumentNames;
 	bool stored;
+	bool isAbstract;
+	bool hasHandler;
 
 	explicit ASTNode(Kind nodeKind = Noop, const std::string& nodeText = "", int sourceLine = 0,
 		const std::string& source = "")
-		: kind(nodeKind), text(nodeText), sourceText(source), parentType(), line(sourceLine), stored(false) {}
+		: kind(nodeKind), text(nodeText), sourceText(source), parentType(), line(sourceLine),
+		  stored(false), isAbstract(false), hasHandler(false) {}
 };
 
 struct FunctionValue;
@@ -118,7 +122,8 @@ struct TypeValue {
 	std::map< std::string, std::shared_ptr<FunctionValue> > methods;
 	std::map<std::string, Value> members;
 	bool isLibrary;
-	TypeValue() : isLibrary(false) {}
+	bool isAbstract;
+	TypeValue() : isLibrary(false), isAbstract(false) {}
 };
 
 struct InstanceValue {

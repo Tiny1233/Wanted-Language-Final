@@ -1,4 +1,0 @@
-ext 'tmptest/tmp_err_func.wcn' = err
-ext @builtin.wcn = nothing
-
-outln(6+1.5*(3^0.5))

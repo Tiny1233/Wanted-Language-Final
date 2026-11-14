@@ -1,0 +1,14 @@
+# class Error has one arg: Message
+
+type UserError(Error):
+    func _setup(msg):
+        my.parent._setup(msg)
+
+
+please:
+    a = 10
+    throw UserError('This is a user-defined error')
+    assert false
+
+else UserError:
+    assert true

@@ -1,0 +1,7 @@
+please:
+    a = 1
+    a /= 0
+    assert false
+
+else ZeroDivisionError:
+    assert true

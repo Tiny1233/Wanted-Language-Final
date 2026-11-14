@@ -1,0 +1,7 @@
+please:
+    getwcore 'undefined_command' 0
+    assert false
+    # getwcore should throw an error because 'undefined_command' is not a valid command
+
+else GetWCoreError:
+    assert true

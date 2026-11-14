@@ -1,0 +1,5 @@
+please:
+    assert false
+
+else AssertionError:
+    assert true

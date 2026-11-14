@@ -49,13 +49,14 @@ struct ASTNode {
 		Number, String, InterpolatedString, Identifier, List, Unary, Binary, Call,
 		Member, Index, Assignment, CompoundAssignment, Expression, Return,
 		FunctionDefinition, TypeDefinition, AbstractDefinition, Import, If, Repeat, While,
-		Break, Continue, Assert, Please, Noop
+		Break, Continue, Assert, Throw, Please, Noop
 	};
 
 	Kind kind;
 	std::string text;
 	std::string sourceText;
 	std::string parentType;
+	std::string handlerType;
 	int line;
 	std::vector<ASTNode> children;
 	std::vector<ASTNode> body;

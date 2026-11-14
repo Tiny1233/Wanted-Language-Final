@@ -1,0 +1,6 @@
+please:
+    a = 10
+    assert false
+
+else Error: # class Error is the base class of all errors, so this should catch any error, and it can be inherited by other error classes, or user-defined error classes.
+    assert true

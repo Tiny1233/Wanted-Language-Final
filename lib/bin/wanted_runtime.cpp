@@ -12,6 +12,14 @@
 
 namespace wanted {
 namespace {
+class LanguageError : public std::runtime_error {
+public:
+    std::string errorType;
+
+    LanguageError(const std::string& type, const std::string& message)
+        : std::runtime_error(message), errorType(type) {}
+};
+
 struct SourceLine;
 // basic utilities for the interpreter
 // tokens
@@ -679,7 +687,20 @@ public:
                 ASTNode blockNode(ASTNode::Please);
                 blockNode.line = sourceLine.number; blockNode.sourceText = sourceLine.text;
                 if (index < lines.size() && lines[index].indent > indent) blockNode.body = block(lines[index].indent);
-                if (index < lines.size() && lines[index].indent == indent && lines[index].text == "else:") {
+                if (index < lines.size() && lines[index].indent == indent &&
+                    lines[index].text.compare(0, 5, "else ") == 0 &&
+                    !lines[index].text.empty() && lines[index].text[lines[index].text.size() - 1] == ':') {
+                    std::string handler = trim(lines[index].text.substr(5, lines[index].text.size() - 6));
+                    if (handler.find_first_not_of(
+                            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
+                        throw std::runtime_error("Invalid error handler type: " + handler);
+                    ++index;
+                    blockNode.hasHandler = true;
+                    blockNode.handlerType = handler;
+                    if (handler.empty()) throw std::runtime_error("Invalid error handler type");
+                    if (index < lines.size() && lines[index].indent > indent)
+                        blockNode.handlerBody = block(lines[index].indent);
+                } else if (index < lines.size() && lines[index].indent == indent && lines[index].text == "else:") {
                     ++index;
                     blockNode.hasHandler = true;
                     if (index < lines.size() && lines[index].indent > indent)
@@ -785,6 +806,11 @@ public:
             ASTNode node(ASTNode::Return); node.children.push_back(expression(trim(text.substr(7)))); return node;
         }
         if (text == "return") return ASTNode(ASTNode::Return);
+        if (text.compare(0, 6, "throw ") == 0) {
+            ASTNode node(ASTNode::Throw);
+            node.children.push_back(expression(trim(text.substr(6))));
+            return node;
+        }
         if (text == "break") return ASTNode(ASTNode::Break);
         if (text == "continue") return ASTNode(ASTNode::Continue);
         if (text.compare(0, 7, "assert ") == 0) {
@@ -860,7 +886,7 @@ std::string multiplyUnsigned(const std::string& left, const std::string& right) 
 }
 
 std::pair<std::string, std::string> divideUnsigned(const std::string& numerator, const std::string& denominator) {
-    if (denominator == "0") throw std::runtime_error("Division by zero");
+    if (denominator == "0") throw LanguageError("ZeroDivisionError", "Division by zero");
     std::string quotient, remainder = "0";
     for (std::size_t i = 0; i < numerator.size(); ++i) {
         remainder = stripLeading(remainder == "0" ? std::string(1, numerator[i]) : remainder + numerator[i]);
@@ -880,15 +906,15 @@ BigNumber::BigNumber(long long value) : scale_(0), negative_(value < 0) {
 }
 BigNumber::BigNumber(const std::string& value) : scale_(0), negative_(false) {
     std::string text = trim(value);
-    if (text.empty()) throw std::runtime_error("Invalid number");
+    if (text.empty()) throw LanguageError("ValueError", "Invalid number");
     if (text[0] == '-' || text[0] == '+') { negative_ = text[0] == '-'; text.erase(0, 1); }
     bool decimal = false;
     for (std::size_t i = 0; i < text.size(); ++i) {
         if (text[i] == '.' && !decimal) decimal = true;
         else if (std::isdigit(static_cast<unsigned char>(text[i]))) { digits_ += text[i]; if (decimal) ++scale_; }
-        else throw std::runtime_error("Invalid number: " + value);
+        else throw LanguageError("ValueError", "Invalid number: " + value);
     }
-    if (digits_.empty()) throw std::runtime_error("Invalid number: " + value);
+    if (digits_.empty()) throw LanguageError("ValueError", "Invalid number: " + value);
     normalize();
 }
 
@@ -942,14 +968,14 @@ BigNumber operator*(const BigNumber& a, const BigNumber& b) {
     result.negative_ = a.negative_ != b.negative_; result.normalize(); return result;
 }
 BigNumber operator/(const BigNumber& a, const BigNumber& b) {
-    if (b.isZero()) throw std::runtime_error("Division by zero");
+    if (b.isZero()) throw LanguageError("ZeroDivisionError", "Division by zero");
     std::string numerator = a.digits_ + std::string(DIVISION_PRECISION + b.scale_, '0');
     std::string denominator = b.digits_ + std::string(a.scale_, '0');
     BigNumber result; result.digits_ = divideUnsigned(numerator, denominator).first;
     result.scale_ = DIVISION_PRECISION; result.negative_ = a.negative_ != b.negative_; result.normalize(); return result;
 }
 BigNumber operator%(const BigNumber& a, const BigNumber& b) {
-    if (b.isZero()) throw std::runtime_error("Modulo by zero");
+    if (b.isZero()) throw LanguageError("ZeroDivisionError", "Modulo by zero");
     int scale = std::max(a.scale_, b.scale_);
     std::string left = a.digits_ + std::string(scale - a.scale_, '0');
     std::string right = b.digits_ + std::string(scale - b.scale_, '0');
@@ -974,7 +1000,7 @@ bool operator>=(const BigNumber& a, const BigNumber& b) { return b <= a; }
 BigNumber BigNumber::power(const BigNumber& base, const BigNumber& exponent) {
     if (exponent.isInteger()) {
         long long count = exponent.toLongLong();
-        if (count > 100000 || count < -100000) throw std::runtime_error("Exponent is too large");
+        if (count > 100000 || count < -100000) throw LanguageError("RangeError", "Exponent is too large");
         bool inverse = count < 0; if (inverse) count = -count;
         BigNumber result(1), factor(base);
         while (count) { if (count & 1) result = result * factor; factor = factor * factor; count >>= 1; }
@@ -1034,6 +1060,27 @@ Interpreter::Interpreter() : currentSourceLine_(0) {
     globals_["E"] = Value(BigNumber("2.71828182845904523536028747135266249775724709369996"));
     readOnlyGlobals_.insert("PI");
     readOnlyGlobals_.insert("E");
+
+    std::shared_ptr<TypeValue> errorType(new TypeValue());
+    errorType->name = "Error";
+    std::shared_ptr<FunctionValue> setup(new FunctionValue());
+    setup->name = "Error._setup";
+    setup->parameters.push_back(std::make_pair(std::string("msg"), std::shared_ptr<ASTNode>()));
+    errorType->methods["_setup"] = setup;
+    globals_["Error"] = Value(errorType);
+    loadedTypes_.insert("Error");
+    const char* errorNames[] = {
+        "AbstractionError", "AssertionError", "AttributeError", "GetWCoreError",
+        "ImportError", "NameError", "RangeError", "RuntimeError", "SyntaxError",
+        "TypeError", "ValueError", "ZeroDivisionError"
+    };
+    for (std::size_t i = 0; i < sizeof(errorNames) / sizeof(errorNames[0]); ++i) {
+        std::shared_ptr<TypeValue> type(new TypeValue());
+        type->name = errorNames[i];
+        type->parentType = errorType;
+        globals_[type->name] = Value(type);
+        loadedTypes_.insert(type->name);
+    }
 }
 
 static bool endsWith(const std::string& value, const std::string& suffix) {
@@ -1067,7 +1114,7 @@ void Interpreter::assign(const std::string& name, const Value& value) {
             return;
         }
         if (readOnlyScopes_.back().find(name) != readOnlyScopes_.back().end())
-            throw std::runtime_error("Cannot modify abstract constant '" + name + "'");
+            throw LanguageError("AbstractionError", "Cannot modify abstract constant '" + name + "'");
         scopes_.back()[name] = value;
     } else {
         std::map<std::string, VariableLocation>::const_iterator reference = globalReferences_.find(name);
@@ -1076,9 +1123,20 @@ void Interpreter::assign(const std::string& name, const Value& value) {
             return;
         }
         if (readOnlyGlobals_.find(name) != readOnlyGlobals_.end())
-            throw std::runtime_error("Cannot modify abstract constant '" + name + "'");
+            throw LanguageError("AbstractionError", "Cannot modify abstract constant '" + name + "'");
         globals_[name] = value;
     }
+}
+
+bool Interpreter::matchesErrorHandler(const std::string& type, const std::string& errorType) const {
+    if (type.empty() || type == "Error" || type == errorType) return true;
+    std::map<std::string, Value>::const_iterator handler = globals_.find(type);
+    std::map<std::string, Value>::const_iterator thrown = globals_.find(errorType);
+    if (handler == globals_.end() || handler->second.kind != Value::Type ||
+        thrown == globals_.end() || thrown->second.kind != Value::Type) return false;
+    for (std::shared_ptr<TypeValue> current = thrown->second.typeValue; current; current = current->parentType)
+        if (current == handler->second.typeValue) return true;
+    return false;
 }
 
 std::size_t Interpreter::referenceDepthLimit() const {
@@ -1097,7 +1155,7 @@ Interpreter::VariableLocation Interpreter::resolveLocation(const std::string& na
         }
     }
     if (location.scope == -2 && globals_.find(name) != globals_.end()) location = VariableLocation(-1, name);
-    if (location.scope == -2) throw std::runtime_error("Undefined name '" + name + "'");
+    if (location.scope == -2) throw LanguageError("NameError", "Undefined name '" + name + "'");
 
     for (std::size_t depth = 0; depth < referenceDepthLimit(); ++depth) {
         if (location.scope < 0) {
@@ -1119,7 +1177,7 @@ Value Interpreter::readLocation(const VariableLocation& original) const {
     for (std::size_t depth = 0; depth < referenceDepthLimit(); ++depth) {
         const std::map<std::string, Value>* values = location.scope < 0 ? &globals_ : &scopes_[location.scope];
         std::map<std::string, Value>::const_iterator value = values->find(location.name);
-        if (value == values->end()) throw std::runtime_error("Undefined referenced name '" + location.name + "'");
+        if (value == values->end()) throw LanguageError("NameError", "Undefined referenced name '" + location.name + "'");
         if (location.scope < 0) {
             std::map<std::string, VariableLocation>::const_iterator reference = globalReferences_.find(location.name);
             if (reference != globalReferences_.end()) { location = reference->second; continue; }
@@ -1146,7 +1204,7 @@ void Interpreter::writeLocation(const VariableLocation& original, const Value& v
             (location.scope >= 0 &&
              readOnlyScopes_[static_cast<std::size_t>(location.scope)].find(location.name) !=
                  readOnlyScopes_[static_cast<std::size_t>(location.scope)].end()))
-            throw std::runtime_error("Cannot modify abstract constant '" + location.name + "'");
+            throw LanguageError("AbstractionError", "Cannot modify abstract constant '" + location.name + "'");
         if (location.scope < 0) globals_[location.name] = value;
         else scopes_[location.scope][location.name] = value;
         return;
@@ -1180,7 +1238,7 @@ Value Interpreter::evaluate(const ASTNode& node) {
             if (open == std::string::npos) { result += node.text.substr(cursor); break; }
             result += node.text.substr(cursor, open - cursor);
             std::size_t close = node.text.find('}', open + 1);
-            if (close == std::string::npos) throw std::runtime_error("Unclosed interpolation expression");
+            if (close == std::string::npos) throw LanguageError("SyntaxError", "Unclosed interpolation expression");
             ExpressionParser parser(tokenize(node.text.substr(open + 1, close - open - 1)));
             result += evaluate(parser.parse()).toString();
             cursor = close + 1;
@@ -1191,38 +1249,49 @@ Value Interpreter::evaluate(const ASTNode& node) {
     if (node.kind == ASTNode::Member) {
         Value owner = evaluate(node.children[0]);
         if (owner.kind == Value::Type) {
+            if (node.children[0].kind == ASTNode::Member && node.children[0].text == "parent" &&
+                !node.children[0].children.empty() &&
+                node.children[0].children[0].kind == ASTNode::Identifier &&
+                node.children[0].children[0].text == "my") {
+                Value instance = evaluate(node.children[0].children[0]);
+                if (instance.kind == Value::Instance && instance.instance->type->parentType) {
+                    std::shared_ptr<FunctionValue> method =
+                        findTypeMethod(instance.instance->type->parentType, node.text);
+                    if (method) return Value(method, instance.instance);
+                }
+            }
             std::map<std::string, std::shared_ptr<FunctionValue> >::const_iterator method = owner.typeValue->methods.find(node.text);
             if (method != owner.typeValue->methods.end()) return Value(method->second);
             std::map<std::string, Value>::const_iterator member = owner.typeValue->members.find(node.text);
             if (member != owner.typeValue->members.end()) return member->second;
-            throw std::runtime_error("Library " + owner.typeValue->name + " has no member '" + node.text + "'");
+            throw LanguageError("AttributeError", "Library " + owner.typeValue->name + " has no member '" + node.text + "'");
         }
-        if (owner.kind != Value::Instance) throw std::runtime_error("Member access requires an instance");
+        if (owner.kind != Value::Instance) throw LanguageError("TypeError", "Member access requires an instance");
         std::map<std::string, Value>::const_iterator member = owner.instance->members.find(node.text);
         if (member != owner.instance->members.end()) return member->second;
         if (node.text == "parent" && owner.instance->type->parentType)
             return Value(owner.instance->type->parentType);
         std::shared_ptr<FunctionValue> method = findTypeMethod(owner.instance->type, node.text);
         if (method) return Value(method, owner.instance);
-        throw std::runtime_error("Type " + owner.instance->type->name + " has no member '" + node.text + "'");
+        throw LanguageError("AttributeError", "Type " + owner.instance->type->name + " has no member '" + node.text + "'");
     }
     if (node.kind == ASTNode::Index) {
         Value collection = evaluate(node.children[0]);
         long long index = evaluate(node.children[1]).number.toLongLong();
         if (collection.kind == Value::List) {
             if (index < 0) index += static_cast<long long>(collection.list.size());
-            if (index < 0 || static_cast<std::size_t>(index) >= collection.list.size()) throw std::runtime_error("List index out of range");
+            if (index < 0 || static_cast<std::size_t>(index) >= collection.list.size()) throw LanguageError("RangeError", "List index out of range");
             return collection.list[static_cast<std::size_t>(index)];
         }
         if (collection.kind == Value::String) {
             std::vector<std::size_t> offsets;
             for (std::size_t offset = 0; offset < collection.string.size(); offset = utf8Next(collection.string, offset)) offsets.push_back(offset);
             if (index < 0) index += static_cast<long long>(offsets.size());
-            if (index < 0 || static_cast<std::size_t>(index) >= offsets.size()) throw std::runtime_error("String index out of range");
+            if (index < 0 || static_cast<std::size_t>(index) >= offsets.size()) throw LanguageError("RangeError", "String index out of range");
             std::size_t begin = offsets[static_cast<std::size_t>(index)];
             return Value(collection.string.substr(begin, utf8Next(collection.string, begin) - begin));
         }
-        throw std::runtime_error("Indexing requires a list or string");
+        throw LanguageError("TypeError", "Indexing requires a list or string");
     }
     if (node.kind == ASTNode::List) {
         std::vector<Value> values; for (std::size_t i = 0; i < node.children.size(); ++i) values.push_back(evaluate(node.children[i])); return Value(values);
@@ -1237,7 +1306,7 @@ Value Interpreter::evaluate(const ASTNode& node) {
         if (!node.children.empty() && node.children[0].kind == ASTNode::Identifier) {
             const std::string& name = node.children[0].text;
             if (name == "getwcore") {
-                if (node.children.size() < 3) throw std::runtime_error("getwcore expects a command and content");
+                if (node.children.size() < 3) throw LanguageError("GetWCoreError", "getwcore expects a command and content");
                 Value command = evaluate(node.children[1]);
                 Value content = evaluate(node.children[2]);
                 if (command.string == "stdout") { std::cout << content.toString(); return content; }
@@ -1253,7 +1322,7 @@ Value Interpreter::evaluate(const ASTNode& node) {
                 if (command.string == "typeBase") {
                     if (content.kind == Value::Instance) return Value(content.instance->type);
                     if (content.kind == Value::Type) return content;
-                    throw std::runtime_error("typeBase expects an instance or type");
+                    throw LanguageError("TypeError", "typeBase expects an instance or type");
                 }
                 if (command.string == "lengthOf") {
                     if (content.kind == Value::List)
@@ -1266,14 +1335,14 @@ Value Interpreter::evaluate(const ASTNode& node) {
                     }
                     if (content.kind == Value::Number) {
                         long double number = content.number.toLongDouble();
-                        if (!std::isfinite(number)) throw std::runtime_error("lengthOf numeric argument is out of range");
+                        if (!std::isfinite(number)) throw LanguageError("RangeError", "lengthOf numeric argument is out of range");
                         long long length = number == 0 ? 1 : static_cast<long long>(std::ceil(std::log10(std::fabs(number))));
                         return Value(BigNumber(length));
                     }
-                    throw std::runtime_error("lengthOf expects a number, string, or list");
+                    throw LanguageError("TypeError", "lengthOf expects a number, string, or list");
                 }
                 if (command.string == "rt" || command.string == "wdbg") return Value(BigNumber(0));
-                throw std::runtime_error("Unknown getwcore command '" + command.string + "'");
+                throw LanguageError("GetWCoreError", "Unknown getwcore command '" + command.string + "'");
             }
             if (name == "out" || name == "outln" || name == "outs" || name == "len" || name == "str" ||
                 name == "num" || name == "int" || name == "abs" || name == "floor" || name == "ceil" ||
@@ -1293,13 +1362,13 @@ Value Interpreter::evaluate(const ASTNode& node) {
     Value left = evaluate(node.children[0]);
     if (node.text == "->") {
         const ASTNode& target = node.children[1];
-        if (target.kind != ASTNode::Identifier) throw std::runtime_error("Conversion target must be a type name");
+        if (target.kind != ASTNode::Identifier) throw LanguageError("TypeError", "Conversion target must be a type name");
         if (loadedTypes_.count(target.text)) {
             Value targetType = lookup(target.text);
-            if (targetType.kind != Value::Type) throw std::runtime_error("Conversion target is not a type: '" + target.text + "'");
+            if (targetType.kind != Value::Type) throw LanguageError("TypeError", "Conversion target is not a type: '" + target.text + "'");
             std::shared_ptr<FunctionValue> converter = findTypeMethod(targetType.typeValue, "_convert");
             if (!converter)
-                throw std::runtime_error("Type " + target.text + " does not define '_convert'");
+                throw LanguageError("TypeError", "Type " + target.text + " does not define '_convert'");
 
             std::shared_ptr<InstanceValue> targetInstance(new InstanceValue());
             targetInstance->type = targetType.typeValue;
@@ -1315,13 +1384,13 @@ Value Interpreter::evaluate(const ASTNode& node) {
             std::shared_ptr<FunctionValue> setup = findTypeMethod(targetType.typeValue, "_setup");
             if (setup)
                 invoke(setup, args, named, positionalReferences, namedReferences, callNode, targetInstance);
-            else if (!args.empty()) throw std::runtime_error("Type " + target.text + " takes no arguments");
+            else if (!args.empty()) throw LanguageError("TypeError", "Type " + target.text + " takes no arguments");
             return invoke(converter, args, named, positionalReferences, namedReferences, callNode, targetInstance);
         }
         if (target.text == "NumberType") {
             if (left.kind == Value::Number) return left;
             try { return Value(BigNumber(left.toString())); }
-            catch (...) { throw std::runtime_error("Cannot convert value to NumberType"); }
+            catch (...) { throw LanguageError("ValueError", "Cannot convert value to NumberType"); }
         }
         if (target.text == "StringType") return Value(left.toString());
         if (target.text == "ListType") {
@@ -1329,7 +1398,7 @@ Value Interpreter::evaluate(const ASTNode& node) {
             std::vector<Value> values; values.push_back(left); return Value(values);
         }
         if (target.text == "NothingType") return Value();
-        throw std::runtime_error("Undefined conversion type '" + target.text + "'");
+        throw LanguageError("NameError", "Undefined conversion type '" + target.text + "'");
     }
     if (node.text == "is" && node.children[1].kind == ASTNode::Identifier) {
         const std::string& type = node.children[1].text;
@@ -1419,18 +1488,24 @@ Value Interpreter::call(const Value& callable, const ASTNode& node) {
         }
     }
     if (callable.kind == Value::Type) {
-        if (callable.typeValue->isLibrary) throw std::runtime_error("Library " + callable.typeValue->name + " cannot be constructed");
+        if (callable.typeValue->isLibrary) throw LanguageError("TypeError", "Library " + callable.typeValue->name + " cannot be constructed");
         if (callable.typeValue->isAbstract)
-            throw std::runtime_error("Abstract type " + callable.typeValue->name + " cannot be instantiated");
+            throw LanguageError("AbstractionError", "Abstract type " + callable.typeValue->name + " cannot be instantiated");
         std::shared_ptr<InstanceValue> instance(new InstanceValue());
         instance->type = callable.typeValue;
+        for (std::shared_ptr<TypeValue> current = callable.typeValue; current; current = current->parentType) {
+            if (current->name == "Error" && !args.empty()) {
+                instance->members["message"] = args[0];
+                break;
+            }
+        }
         std::shared_ptr<FunctionValue> setup = findTypeMethod(callable.typeValue, "_setup");
         if (setup) invoke(setup, args, named, positionalReferences, namedReferences, callNode, instance);
-        else if (!args.empty()) throw std::runtime_error("Type " + callable.typeValue->name + " takes no arguments");
+        else if (!args.empty()) throw LanguageError("TypeError", "Type " + callable.typeValue->name + " takes no arguments");
         return Value(instance);
     }
     if (callable.kind == Value::BoundMethod) return invoke(callable.function, args, named, positionalReferences, namedReferences, callNode, callable.instance);
-    if (callable.kind != Value::Function) throw std::runtime_error("Value is not callable: " + callable.toString());
+    if (callable.kind != Value::Function) throw LanguageError("TypeError", "Value is not callable: " + callable.toString());
     return invoke(callable.function, args, named, positionalReferences, namedReferences, callNode);
 }
 
@@ -1448,7 +1523,7 @@ Value Interpreter::invoke(const std::shared_ptr<FunctionValue>& function, const 
         const bool byReference = !parameterName.empty() && parameterName[0] == '@';
         const std::string name = byReference ? parameterName.substr(1) : parameterName;
         std::map<std::string, Value>::const_iterator namedValue = named.find(name);
-        if (namedValue != named.end() && argIndex < args.size()) throw std::runtime_error("Multiple values for argument '" + name + "'");
+        if (namedValue != named.end() && argIndex < args.size()) throw LanguageError("TypeError", "Multiple values for argument '" + name + "'");
         VariableLocation reference;
         if (namedValue != named.end()) {
             bindings[name] = namedValue->second;
@@ -1461,17 +1536,17 @@ Value Interpreter::invoke(const std::shared_ptr<FunctionValue>& function, const 
             ++argIndex;
         }
         else if (function->parameters[i].second) bindings[name] = evaluate(*function->parameters[i].second);
-        else throw std::runtime_error("Function " + function->name + " missing argument '" + name + "'");
+        else throw LanguageError("TypeError", "Function " + function->name + " missing argument '" + name + "'");
         if (byReference) {
-            if (reference.scope == -2) throw std::runtime_error("Reference parameter '" + name + "' requires a variable argument");
+            if (reference.scope == -2) throw LanguageError("TypeError", "Reference parameter '" + name + "' requires a variable argument");
             bindingReferences[name] = reference;
         }
     }
-    if (argIndex < args.size()) throw std::runtime_error("Too many arguments for function " + function->name);
+    if (argIndex < args.size()) throw LanguageError("TypeError", "Too many arguments for function " + function->name);
     for (std::map<std::string, Value>::const_iterator it = named.begin(); it != named.end(); ++it) {
         bool found = false;
         for (std::size_t i = 0; i < function->parameters.size(); ++i) if (function->parameters[i].first == it->first) found = true;
-        if (!found) throw std::runtime_error("Unexpected named argument '" + it->first + "'");
+        if (!found) throw LanguageError("TypeError", "Unexpected named argument '" + it->first + "'");
     }
     std::string key;
     for (std::size_t i = 0; i < function->parameters.size(); ++i) {
@@ -1525,7 +1600,7 @@ Value Interpreter::callBuiltin(const std::string& name, const std::vector<Value>
         return Value();
     }
     if (name == "len") {
-        if (args.empty()) throw std::runtime_error("len expects one argument");
+        if (args.empty()) throw LanguageError("TypeError", "len expects one argument");
         return Value(BigNumber(args[0].kind == Value::List ? static_cast<long long>(args[0].list.size()) : static_cast<long long>(args[0].string.size())));
     }
     if (name == "str") return Value(args.empty() ? "" : args[0].toString());
@@ -1546,7 +1621,7 @@ Value Interpreter::callBuiltin(const std::string& name, const std::vector<Value>
         for (long long i = 2; i <= n; ++i) product = product * BigNumber(i);
         return Value(product);
     }
-    throw std::runtime_error("Unknown function '" + name + "'");
+    throw LanguageError("NameError", "Unknown function '" + name + "'");
 }
 
 void Interpreter::execute(const ASTNode& node) {
@@ -1580,7 +1655,7 @@ void Interpreter::execute(const ASTNode& node) {
         if (cachedModule != moduleNamespaces_.end()) module = cachedModule->second;
         else {
             std::ifstream imported(path.c_str(), std::ios::in | std::ios::binary);
-            if (!imported) throw std::runtime_error("Cannot import module '" + path + "'");
+            if (!imported) throw LanguageError("ImportError", "Cannot import module '" + path + "'");
             std::ostringstream source; source << imported.rdbuf();
             std::set<std::string> previousNames;
             for (std::map<std::string, Value>::const_iterator it = globals_.begin(); it != globals_.end(); ++it) previousNames.insert(it->first);
@@ -1617,7 +1692,7 @@ void Interpreter::execute(const ASTNode& node) {
         if (!node.parentType.empty()) {
             Value parent = lookup(node.parentType);
             if (parent.kind != Value::Type || parent.typeValue->isLibrary)
-                throw std::runtime_error("Parent of type " + node.text + " must be a user-defined type");
+                throw LanguageError("TypeError", "Parent of type " + node.text + " must be a user-defined type");
             type->parentType = parent.typeValue;
         }
         for (std::size_t i = 0; i < node.body.size(); ++i) {
@@ -1640,7 +1715,7 @@ void Interpreter::execute(const ASTNode& node) {
         Value constantValue = evaluate(node.children[0]);
         if (!scopes_.empty()) {
             if (scopes_.back().find(node.text) != scopes_.back().end())
-                throw std::runtime_error("Cannot redefine abstract constant '" + node.text + "'");
+                throw LanguageError("AbstractionError", "Cannot redefine abstract constant '" + node.text + "'");
             scopes_.back()[node.text] = constantValue;
             readOnlyScopes_.back().insert(node.text);
         } else {
@@ -1650,7 +1725,7 @@ void Interpreter::execute(const ASTNode& node) {
                 if (readOnlyGlobals_.find(node.text) != readOnlyGlobals_.end() &&
                     valuesEqual(existing->second, constantValue, comparedInstances))
                     return;
-                throw std::runtime_error("Cannot redefine abstract constant '" + node.text + "'");
+                throw LanguageError("AbstractionError", "Cannot redefine abstract constant '" + node.text + "'");
             }
             globals_[node.text] = constantValue;
             readOnlyGlobals_.insert(node.text);
@@ -1661,7 +1736,7 @@ void Interpreter::execute(const ASTNode& node) {
         if (!node.children.empty() && node.children[0].kind == ASTNode::Member) {
             if (node.children.size() < 2) throw std::runtime_error("Invalid member assignment");
             Value owner = evaluate(node.children[0].children[0]);
-            if (owner.kind != Value::Instance) throw std::runtime_error("Member assignment requires an instance");
+            if (owner.kind != Value::Instance) throw LanguageError("TypeError", "Member assignment requires an instance");
             owner.instance->members[node.children[0].text] = evaluate(node.children[1]);
             return;
         }
@@ -1749,8 +1824,23 @@ void Interpreter::execute(const ASTNode& node) {
     }
     if (node.kind == ASTNode::Return) throw ReturnSignal(node.children.empty() ? Value(BigNumber(0)) : evaluate(node.children[0]));
     if (node.kind == ASTNode::Assert) {
-        if (!evaluate(node.children[0]).truthy()) throw std::runtime_error("Assertion failed");
+        if (!evaluate(node.children[0]).truthy()) throw LanguageError("AssertionError", "Assertion failed");
         return;
+    }
+    if (node.kind == ASTNode::Throw) {
+        Value thrown = evaluate(node.children[0]);
+        if (thrown.kind != Value::Instance)
+            throw LanguageError("TypeError", "Only Error instances can be thrown");
+        std::shared_ptr<TypeValue> errorBase;
+        std::map<std::string, Value>::const_iterator base = globals_.find("Error");
+        if (base != globals_.end() && base->second.kind == Value::Type) errorBase = base->second.typeValue;
+        std::shared_ptr<TypeValue> current = thrown.instance->type;
+        while (current && current != errorBase) current = current->parentType;
+        if (!current) throw LanguageError("TypeError", "Only Error instances can be thrown");
+        std::map<std::string, Value>::const_iterator message = thrown.instance->members.find("message");
+        const std::string text = message == thrown.instance->members.end()
+            ? thrown.instance->type->name : message->second.toString();
+        throw ExecutionError(thrown.instance->type->name, text, filename_, node.line, node.sourceText);
     }
     if (node.kind == ASTNode::If) {
         for (std::size_t i = 0; i < node.branches.size(); ++i) if (evaluate(node.branches[i].first).truthy()) { executeBlock(node.branches[i].second); break; }
@@ -1760,7 +1850,7 @@ void Interpreter::execute(const ASTNode& node) {
         bool broken = false;
         if (!node.text.empty()) {
             Value collection = evaluate(node.children[0]);
-            if (collection.kind != Value::List) throw std::runtime_error("List repeat expects a list");
+            if (collection.kind != Value::List) throw LanguageError("TypeError", "List repeat expects a list");
             for (std::size_t i = 0; i < collection.list.size(); ++i) {
                 assign(node.text, collection.list[i]);
                 try { executeBlock(node.body); }
@@ -1793,8 +1883,26 @@ void Interpreter::execute(const ASTNode& node) {
     }
     if (node.kind == ASTNode::Please) {
         try { executeBlock(node.body); }
+        catch (const ExecutionError& error) {
+            if (!node.hasHandler || !matchesErrorHandler(node.handlerType, error.errorType)) {
+                executeBlock(node.finalBody);
+                throw;
+            }
+            try {
+                executeBlock(node.handlerBody);
+            } catch (...) {
+                executeBlock(node.finalBody);
+                throw;
+            }
+            executeBlock(node.finalBody);
+            return;
+        }
         catch (const std::exception&) {
             if (!node.hasHandler) {
+                executeBlock(node.finalBody);
+                throw;
+            }
+            if (!matchesErrorHandler(node.handlerType, "RuntimeError")) {
                 executeBlock(node.finalBody);
                 throw;
             }
@@ -1829,11 +1937,15 @@ void Interpreter::executeBlock(const std::vector<ASTNode>& nodes) {
             currentSourceText_ = previousSource;
             throw;
         }
-        catch (const std::exception& error) {
-            const std::string type = nodes[i].kind == ASTNode::Assert ? "AssertionError" : "RuntimeError";
+        catch (const LanguageError& error) {
             currentSourceLine_ = previousLine;
             currentSourceText_ = previousSource;
-            throw ExecutionError(type, error.what(), filename_, nodes[i].line, nodes[i].sourceText);
+            throw ExecutionError(error.errorType, error.what(), filename_, nodes[i].line, nodes[i].sourceText);
+        }
+        catch (const std::exception& error) {
+            currentSourceLine_ = previousLine;
+            currentSourceText_ = previousSource;
+            throw ExecutionError("RuntimeError", error.what(), filename_, nodes[i].line, nodes[i].sourceText);
         }
         catch (...) {
             currentSourceLine_ = previousLine;

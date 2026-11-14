@@ -1,0 +1,8 @@
+please:
+    a = undefined_function()
+
+    assert false
+
+
+else NameError:
+    assert true

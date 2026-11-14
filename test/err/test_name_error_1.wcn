@@ -1,0 +1,8 @@
+ext @builtin.wcn = nothing
+
+please:
+    a += 10
+    assert false
+
+else NameError:
+    assert true

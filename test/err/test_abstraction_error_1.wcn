@@ -1,0 +1,8 @@
+please:
+    # abstract variable is not allowed to be changed, so this should throw an error
+    abstract a = 10
+    a += 1
+    assert false    
+
+else AbstractionError:
+    assert true

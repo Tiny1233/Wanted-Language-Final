@@ -77,6 +77,7 @@ private:
                  const ASTNode& callNode,
                  const std::shared_ptr<InstanceValue>& owner = std::shared_ptr<InstanceValue>());
     Value callBuiltin(const std::string& name, const std::vector<Value>& args);
+    bool matchesErrorHandler(const std::string& type, const std::string& errorType) const;
     Value lookup(const std::string& name) const;
     void assign(const std::string& name, const Value& value);
     std::size_t referenceDepthLimit() const;

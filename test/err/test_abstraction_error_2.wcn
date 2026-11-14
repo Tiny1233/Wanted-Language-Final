@@ -1,0 +1,23 @@
+status = 0
+
+abstract type Demo:
+    # cant be instantiated, but can be inherited
+    func _setup(val):
+        my.val = val + 5
+
+
+type DemoChild(Demo):
+    func _setup(val):
+        my.parent._setup(val)
+
+please:
+    a = DemoChild(10)
+    assert a.val == 15
+    status = 1
+    b = Demo(10)
+    status = 2
+
+else AbstractionError:
+    assert true
+
+assert status == 1
